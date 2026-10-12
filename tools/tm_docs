@@ -1,0 +1,363 @@
+#!/usr/bin/env python3
+"""tm_docs — tm_kit 文档检索。给下游项目的 agent 用。
+
+零依赖，单文件。放在文档仓库的 tools/ 下，直接用相对路径调用即可。
+
+    ./tools/tm_docs index                        # 常驻路由表（约 5k token）
+    ./tools/tm_docs find 事务 订阅               # 关键词搜索，命中文件 + 片段
+    ./tools/tm_docs find --task "跨进程发请求收响应"
+    ./tools/tm_docs find --full "setMaxOutputConnectivity"   # 搜全文（慢一些）
+    ./tools/tm_docs headers CommonFlowUtils.hpp  # 头文件 → 文档
+    ./tools/tm_docs show tm_basic/09-transaction # 打印一篇（路径可省略序号后缀）
+    ./tools/tm_docs show tm_basic/09 --section 易错点
+    ./tools/tm_docs list                         # 全部章节
+
+所有查询都支持 --json，便于程序消费。
+"""
+import argparse
+import json
+import os
+import re
+import sys
+
+DOCS_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SKIP = {"AGENT_INDEX.md", "LOOKUP.md", "README.md", "CONTRIBUTING-DOCS.md"}
+FM_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.S)
+SECTION_RE = re.compile(r"^(#{2,4})\s+(.*)$")
+
+
+def die(msg, code=2):
+    print(f"tm_docs: {msg}", file=sys.stderr)
+    return code
+
+
+def parse_front_matter(text):
+    m = FM_RE.match(text)
+    if not m:
+        return {}
+    fm = {}
+    lines = m.group(1).splitlines()
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        i += 1
+        if ":" not in line or line.lstrip().startswith("#"):
+            continue
+        key, _, val = line.partition(":")
+        key = key.strip()
+        val = val.strip()
+        if val.startswith("[") and val.endswith("]"):
+            fm[key] = [v.strip() for v in val[1:-1].split(",") if v.strip()]
+        elif val == "":
+            # 可能是块状列表；收集后续的 "  - item" 行
+            items = []
+            while i < len(lines) and re.match(r"^\s*-\s+", lines[i]):
+                items.append(re.sub(r"^\s*-\s+", "", lines[i]).strip())
+                i += 1
+            fm[key] = items if items else ""
+        else:
+            fm[key] = val
+    return fm
+
+
+def load_docs():
+    """返回 [{rel, path, fm, text, body_lines}]"""
+    docs = []
+    for dirpath, dirnames, filenames in os.walk(DOCS_ROOT):
+        dirnames[:] = [d for d in dirnames if d not in ("tools", ".git")]
+        for f in sorted(filenames):
+            if not f.endswith(".md") or f in SKIP:
+                continue
+            path = os.path.join(dirpath, f)
+            with open(path, encoding="utf-8") as fh:
+                text = fh.read()
+            fm = parse_front_matter(text)
+            if not fm:
+                continue
+            body = text[FM_RE.match(text).end():]
+            docs.append({
+                "rel": os.path.relpath(path, DOCS_ROOT),
+                "path": path,
+                "fm": fm,
+                "text": text,
+                "body_lines": body.splitlines(),
+            })
+    order = {"tm_infra": 0, "tm_basic": 1, "tm_transport": 2, "meta": 3}
+    docs.sort(key=lambda d: (order.get(d["fm"].get("library", "meta"), 9), d["rel"]))
+    return docs
+
+
+def as_list(v):
+    if v is None:
+        return []
+    return v if isinstance(v, list) else [v]
+
+
+def snippet(lines, needles, width=100):
+    """在正文里找任一关键词的首次出现，返回该行（截断）。"""
+    if isinstance(needles, str):
+        needles = [needles]
+    best = None
+    for line in lines:
+        if line.lstrip().startswith(("#", "|", ">", "```", "*", "-")):
+            continue  # 跳过标题/表格/引用/代码块围栏，优先给正文
+        for n in needles:
+            if n in line:
+                best = line.strip()
+                break
+        if best:
+            break
+    if best is None:
+        for line in lines:
+            if any(n in line for n in needles):
+                best = line.strip()
+                break
+    if not best:
+        return ""
+    return best[:width] + ("…" if len(best) > width else "")
+
+
+HEADER_RE = re.compile(r"([A-Za-z_][\w]*)\.(?:hpp|cpp|h|cc)$")
+
+
+def score(doc, terms, full=False):
+    """返回 (score, 命中原因列表)。分数越高越相关。"""
+    title = str(doc["fm"].get("title", ""))
+    title_l = title.lower()
+    kws = as_list(doc["fm"].get("keywords"))
+    hdrs = as_list(doc["fm"].get("headers"))
+    kw_blob = " ".join(kws).lower()
+    hdr_bases = [os.path.basename(h).lower() for h in hdrs]
+    reasons = []
+    total = 0
+    for t in terms:
+        tl = t.lower()
+        s = 0
+        stem_m = HEADER_RE.search(t)
+        if stem_m:
+            # 头文件式的查询词：*列出*该头文件的文档未必是讲它的那篇
+            # （overview 会列出很多头文件）。用"标题含该头文件词干"来判归属。
+            stem = stem_m.group(1).lower()
+            if tl in hdr_bases:
+                s += 120
+                reasons.append(f"头文件列表含「{t}」")
+            if stem in title_l:
+                s += 300
+                reasons.append(f"标题含头文件词干「{stem}」")
+            elif any(stem == k.lower() or stem in k.lower() or k.lower() in stem
+                     for k in kws if len(k) >= 4):
+                # 词干出现在关键词里（如 Environments.hpp → 关键词 Environment）
+                s += 80
+                reasons.append(f"关键词含头文件词干「{stem}」")
+            total += s
+            continue
+        if tl in title_l:
+            s += 100
+            reasons.append(f"标题命中「{t}」")
+        if any(tl == k.lower() for k in kws):
+            # 作者显式声明为关键词，是最强的"本篇讲这个"信号，
+            # 权重高于若干弱信号的叠加（如 GraphControlFacility 里恰好含 "facility"）
+            s += 120
+            reasons.append(f"关键词精确命中「{t}」")
+        elif tl in kw_blob:
+            s += 30
+            reasons.append(f"关键词包含「{t}」")
+        if tl in " ".join(hdr_bases):
+            s += 40
+            reasons.append(f"头文件命中「{t}」")
+        if full and tl in doc["text"].lower():
+            s += 10
+            reasons.append(f"正文命中「{t}」")
+        total += s
+    return total, reasons
+
+
+def cmd_index(args):
+    path = os.path.join(DOCS_ROOT, "AGENT_INDEX.md")
+    if not os.path.isfile(path):
+        return die("AGENT_INDEX.md 不存在，先跑 tools/gen_agent_index.py")
+    print(open(path, encoding="utf-8").read(), end="")
+    return 0
+
+
+def cmd_list(args):
+    docs = load_docs()
+    if args.json:
+        print(json.dumps([{"path": d["rel"], "title": d["fm"].get("title", ""),
+                           "library": d["fm"].get("library", "")} for d in docs],
+                         ensure_ascii=False, indent=2))
+        return 0
+    lib = None
+    for d in docs:
+        if d["fm"].get("library") != lib:
+            lib = d["fm"].get("library")
+            print(f"\n[{lib}]")
+        print(f"  {d['rel']:<42} {d['fm'].get('title','')}")
+    return 0
+
+
+def cmd_headers(args):
+    docs = load_docs()
+    needle = args.header.lower()
+    hits = []
+    for d in docs:
+        for h in as_list(d["fm"].get("headers")):
+            base = os.path.basename(h).lower()
+            if needle == base or needle == h.lower():
+                hits.append((d, h))
+            elif args.fuzzy and needle in h.lower():
+                hits.append((d, h))
+    if not hits:
+        print(f"没有文档覆盖 `{args.header}`。", file=sys.stderr)
+        print("试试：tm_docs find --full <符号名>，或 tm_docs headers --fuzzy <片段>",
+              file=sys.stderr)
+        return 1
+    if args.json:
+        print(json.dumps([{"header": h, "doc": d["rel"], "title": d["fm"].get("title", "")}
+                          for d, h in hits], ensure_ascii=False, indent=2))
+        return 0
+    for d, h in hits:
+        print(f"{d['rel']}\n    {d['fm'].get('title','')}\n    （覆盖 {h}）")
+    return 0
+
+
+def cmd_find(args):
+    docs = load_docs()
+    terms = []
+    # 位置参数：按空白/标点切分（引号包住的整句也能正确拆开）
+    # --task：中文再切 2-gram，因为一句话里没有词边界
+    for raw in args.terms:
+        terms.extend(t for t in re.split(r"[\s,，、/]+", raw) if t)
+    if args.task:
+        for piece in re.split(r"[\s,，、/]+", args.task):
+            if not piece:
+                continue
+            if re.search(r"[一-鿿]", piece):
+                terms.extend(piece[i:i + 2] for i in range(max(1, len(piece) - 1)))
+            else:
+                terms.append(piece)
+    if not terms:
+        return die("给个关键词，或用 --task \"...\"")
+
+    terms = [t for t in dict.fromkeys(terms) if len(t) >= 2]
+    scored = []
+    for d in docs:
+        s, reasons = score(d, terms, full=args.full)
+        if s > 0:
+            scored.append((s, d, reasons))
+    scored.sort(key=lambda x: -x[0])
+
+    if not scored:
+        print("没有命中。", file=sys.stderr)
+        print("试试 --full 搜正文，或用更短的词。", file=sys.stderr)
+        return 1
+
+    scored = scored[:args.limit]
+    if args.json:
+        print(json.dumps([{
+            "path": d["rel"], "title": d["fm"].get("title", ""), "score": s,
+            "matched": reasons,
+            "snippet": snippet(d["body_lines"], terms),
+        } for s, d, reasons in scored], ensure_ascii=False, indent=2))
+        return 0
+
+    for s, d, reasons in scored:
+        print(f"{d['rel']}  —  {d['fm'].get('title','')}")
+        for r in dict.fromkeys(reasons):
+            print(f"    · {r}")
+        sn = snippet(d["body_lines"], terms)
+        if sn:
+            print(f"    > {sn}")
+        print()
+    print(f"（{len(scored)} 篇。下一步：tm_docs show <path> 读全文）")
+    return 0
+
+
+def resolve_doc(name):
+    """允许省略 .md、允许只给序号或后缀片段。"""
+    docs = load_docs()
+    n = name[:-3] if name.endswith(".md") else name
+    cands = [d for d in docs
+             if d["rel"] == name or d["rel"][:-3] == n or d["rel"].endswith(n)]
+    if not cands:
+        cands = [d for d in docs if n in d["rel"]]
+    if len(cands) == 1:
+        return cands[0], None
+    if not cands:
+        return None, f"找不到文档 `{name}`"
+    return None, ("`%s` 匹配到多篇，请写全：\n  " % name
+                  + "\n  ".join(d["rel"] for d in cands))
+
+
+def cmd_show(args):
+    doc, err = resolve_doc(args.doc)
+    if err:
+        return die(err)
+    if not args.section:
+        print(open(doc["path"], encoding="utf-8").read(), end="")
+        return 0
+
+    want = args.section
+    lines = open(doc["path"], encoding="utf-8").read().splitlines()
+    starts = [(i, m.group(2)) for i, line in enumerate(lines)
+              if (m := SECTION_RE.match(line))]
+    hit = None
+    for idx, (i, title) in enumerate(starts):
+        if want.lower() in title.lower():
+            hit = idx
+            break
+    if hit is None:
+        return die(f"`{doc['rel']}` 里没有标题含「{want}」的小节。\n"
+                   f"现有小节：\n  " + "\n  ".join(t for _, t in starts))
+    i, title = starts[hit]
+    level = len(SECTION_RE.match(lines[i]).group(1))
+    end = len(lines)
+    for j, t in starts[hit + 1:]:
+        if len(SECTION_RE.match(lines[j]).group(1)) <= level:
+            end = j
+            break
+    print("\n".join(lines[i:end]))
+    return 0
+
+
+def main():
+    ap = argparse.ArgumentParser(
+        prog="tm_docs", description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = ap.add_subparsers(dest="cmd", required=True)
+
+    p = sub.add_parser("index", help="打印常驻路由表（AGENT_INDEX.md）")
+    p.add_argument("--json", action="store_true", help=argparse.SUPPRESS)
+    p.set_defaults(func=cmd_index)
+
+    p = sub.add_parser("list", help="列出全部章节")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_list)
+
+    p = sub.add_parser("find", help="按关键词 / 任务描述搜索")
+    p.add_argument("terms", nargs="*",
+                   help="关键词，可给多个；引号包住的整句会按空白拆开")
+    p.add_argument("--task", help="用一句话描述你要做什么")
+    p.add_argument("--full", action="store_true", help="同时搜正文（慢）")
+    p.add_argument("--limit", type=int, default=8, help="最多返回几篇（默认 8）")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_find)
+
+    p = sub.add_parser("headers", help="头文件 → 文档")
+    p.add_argument("header", help="头文件名，如 CommonFlowUtils.hpp")
+    p.add_argument("--fuzzy", action="store_true", help="子串匹配而非精确匹配")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_headers)
+
+    p = sub.add_parser("show", help="打印一篇或其中一节")
+    p.add_argument("doc", help="如 tm_basic/09-transaction（可省略后缀）")
+    p.add_argument("--section", help="只打印标题含该字串的小节")
+    p.add_argument("--json", action="store_true", help=argparse.SUPPRESS)
+    p.set_defaults(func=cmd_show)
+
+    args = ap.parse_args()
+    return args.func(args)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

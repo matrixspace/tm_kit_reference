@@ -1,0 +1,38 @@
+name: docs
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # 纯 Python 标准库，无需安装依赖
+      - name: 校验文档一致性
+        run: python3 tools/validate_docs.py --quick
+
+      - name: 检查生成物是否与 front-matter 同步
+        run: python3 tools/gen_agent_index.py --check
+
+      - name: 检查检索 CLI 可用
+        run: |
+          ./tools/tm_docs list > /dev/null
+          ./tools/tm_docs find 心跳 --limit 1 > /dev/null
+          ./tools/tm_docs headers CommonFlowUtils.hpp > /dev/null
+          ./tools/tm_docs show tm_basic/09-transaction --section 易错点 > /dev/null
+
+# --quick 跳过两项需要三个库在场的检查（源码引用、版本戳）。
+# 要跑全量，在 checkout 本仓库后再把 tm_infra / tm_basic / tm_transport
+# 拉取到同级目录（WORKSPACE 布局），然后：
+#
+#   - name: 拉取三个库
+#     run: |
+#       for r in tm_infra tm_basic tm_transport; do
+#         git clone --depth 1 "https://github.com/matrixspace/$r.git" "../$r"
+#       done
+#   - name: 全量校验
+#     run: python3 tools/validate_docs.py

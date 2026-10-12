@@ -1,0 +1,28 @@
+{
+  "_comment": "本套文档所校验的 tm_kit 各库版本。上游源码变动后，用 tools/stamp_versions.py 更新，并重跑 tools/validate_docs.py。",
+  "validated_at": "2026-10-10",
+  "libraries": {
+    "tm_infra": {
+      "repo": "https://github.com/matrixspace/tm_infra.git",
+      "commit": "f3432a9",
+      "commit_date": "2026-10-10",
+      "headers": 78
+    },
+    "tm_basic": {
+      "repo": "https://github.com/matrixspace/tm_basic.git",
+      "commit": "b254469",
+      "commit_date": "2026-10-10",
+      "headers": 108
+    },
+    "tm_transport": {
+      "repo": "https://github.com/matrixspace/tm_transport.git",
+      "commit": "d6ddb0e",
+      "commit_date": "2026-10-10",
+      "headers": 92
+    }
+  },
+  "docs": {
+    "files": 51,
+    "lines": 16468
+  }
+}
