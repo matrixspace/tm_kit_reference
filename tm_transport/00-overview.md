@@ -104,16 +104,16 @@ websocket://localhost:56789:::/data[ignoreTopic=true]
 grpc_interop://localhost:50051
 ```
 
-广播与 facility 各自维护一份**受支持的传输名列表**（`parseMultiTransportBroadcastChannel` 在 `tm_kit/transport/MultiTransportBroadcastListener.hpp:111`，`parseMultiTransportRemoteFacilityChannel` 在 `tm_kit/transport/MultiTransportRemoteFacility.hpp:60`）：
+广播与 facility 各自维护一份**受支持的传输名列表**（`parseMultiTransportBroadcastChannel` 在 `tm_kit/transport/MultiTransportBroadcastListener.hpp:141`，`parseMultiTransportRemoteFacilityChannel` 在 `tm_kit/transport/MultiTransportRemoteFacility.hpp:60`）：
 
 | 角色 | 支持的传输名（顺序即枚举序号） |
 |---|---|
-| broadcast | `multicast`, `rabbitmq`, `redis`, `nats`, `zeromq`, `nng`, `shared_memory_broadcast`, `websocket`, `singlecast` |
+| broadcast | `multicast`, `rabbitmq`, `redis`, `nats`, `zeromq`, `nng`, `shared_memory_broadcast`, `websocket`, `singlecast`, `shm_seqlock`, `shm_cursor`, `aeron_ipc` |
 | on-order facility | `rabbitmq`, `redis`, `nats`, `socket_rpc`, `grpc_interop`, `json_rest`, `websocket` |
 
 两者都返回 `std::optional<tuple<连接类型枚举, ConnectionLocator>>`：前缀不匹配返回 `nullopt`，前缀匹配但 locator 非法也返回 `nullopt`。
 
-### 3. `AllNetworkTransportComponents`（`tm_kit/transport/MultiTransportBroadcastListener.hpp:31`）
+### 3. `AllNetworkTransportComponents`（`tm_kit/transport/MultiTransportBroadcastListener.hpp:38`）
 
 一个把所有网络传输组件打包好的 `infra::Environment` 别名，方便"我要全部传输都能用"的场景：
 
@@ -126,6 +126,10 @@ using AllNetworkTransportComponents = infra::Environment<
     , zeromq::ZeroMQComponent
     , nng::NNGComponent
     , shared_memory_broadcast::SharedMemoryBroadcastComponent
+#ifdef __linux__
+    , shm_seqlock::ShmSeqlockComponent
+    , shm_cursor::ShmCursorComponent
+#endif
     , socket_rpc::SocketRPCComponent
     , grpc_interop::GrpcInteropComponent
     , json_rest::JsonRESTComponent
@@ -146,6 +150,8 @@ using TheEnvironment = infra::Environment<
 >;
 ```
 
+**注意**：`aeron_ipc::AeronIpcComponent` **不在** `AllNetworkTransportComponents` 里（即使编译时找到了 Aeron），需要单独加入 Environment，见 [aeron_ipc](03-transports/aeron_ipc.md)。`shm_seqlock` / `shm_cursor` 只在 Linux 下进入该别名。
+
 **代价**：`AllNetworkTransportComponents` 会把所有传输的第三方库都链接进二进制。生产环境通常只按需列出用到的组件（例如只列 `zeromq::ZeroMQComponent` 与 `rabbitmq::RabbitMQComponent`）。
 
 ### 4. 能力矩阵
@@ -159,6 +165,9 @@ using TheEnvironment = infra::Environment<
 | `nats` | ✓ | ✓ | 轻量消息总线 |
 | `nng` | ✓ | ✗ | 直连；见 `tm_kit/transport/nng/` |
 | `shared_memory_broadcast` | ✓ | ✗ | 同机进程间共享内存；无网络开销 |
+| `shm_seqlock` | ✓ | ✗ | 同机 SPMC 共享内存，逐槽 seqlock；Linux only |
+| `shm_cursor` | ✓ | ✗ | 同机有损 SPMC 共享内存，全局游标；Linux only |
+| `aeron_ipc` | ✓ | ✗ | Aeron `aeron:ipc`；Linux only，需编译期找到 Aeron |
 | `socket_rpc` | ✗ | ✓ | 裸 TCP 请求-响应 |
 | `grpc_interop` | ✗ | ✓ | 对接外部 gRPC 服务；见 `tm_kit/transport/grpc_interop/` |
 | `json_rest` | ✗ | ✓ | HTTP/JSON 客户端与文档服务器 |
@@ -221,7 +230,7 @@ auto heartbeatSource = transport::MultiTransportBroadcastListenerManagingUtils<R
     );
 ```
 
-第 4 个参数 `topicDescription` 是传输相关的订阅过滤表达式（RabbitMQ 用 AMQP topic 通配，Redis 用 glob）；省略则用默认 topic（RabbitMQ 为 `#`，Redis 为 `*`，见 `tm_kit/transport/MultiTransportBroadcastListener.hpp:324` 的 `multiTransportListenerDefaultTopic`）。
+第 4 个参数 `topicDescription` 是传输相关的订阅过滤表达式（RabbitMQ 用 AMQP topic 通配，Redis 用 glob）；省略则用默认 topic（RabbitMQ 为 `#`，Redis 为 `*`，见 `tm_kit/transport/MultiTransportBroadcastListener.hpp:357` 的 `multiTransportListenerDefaultTopic`）。
 
 ## 实时 / 回测行为差异
 
@@ -229,7 +238,7 @@ auto heartbeatSource = transport::MultiTransportBroadcastListenerManagingUtils<R
 
 | 维度 | 实时（`RealTimeApp`） | 回测（`SinglePassIterationApp` / `TopDown`） |
 |---|---|---|
-| 传输节点可用性 | 全部可用 | `MultiTransportBroadcastListener`、`MultiTransportRemoteFacility` 均**硬编码为 `RealTimeApp<Env>`**（见 `tm_kit/transport/MultiTransportBroadcastListener.hpp:339`、`tm_kit/transport/MultiTransportRemoteFacility.hpp:123`），不能用于单程迭代 App |
+| 传输节点可用性 | 全部可用 | `MultiTransportBroadcastListener`、`MultiTransportRemoteFacility` 均**硬编码为 `RealTimeApp<Env>`**（见 `tm_kit/transport/MultiTransportBroadcastListener.hpp:372`、`tm_kit/transport/MultiTransportRemoteFacility.hpp:123`），不能用于单程迭代 App |
 | 数据来源 | 网络推送，自带后台线程 | 改用文件/内存 importer；或把实时图录制成 chain 再回放（见 `tm_examples/simple_demo_chain_version/`） |
 | 时钟 | `real_time_clock::ClockComponent` | `single_pass_iteration_clock::ClockComponent`（数据的时间戳即"当前时间"） |
 | 替代方案 | —— | `SyntheticMultiTransportFacility`（`tm_kit/transport/SyntheticMultiTransportFacility.hpp`）在内存中合成 facility，让同一份业务代码在没有网络的情况下跑通 |
@@ -241,7 +250,7 @@ auto heartbeatSource = transport::MultiTransportBroadcastListenerManagingUtils<R
 
 **1. 传输节点硬编码 `RealTimeApp`，放进回测 App 会编译失败**
 
-`MultiTransportBroadcastListener` 的基类是 `infra::RealTimeApp<Env>::AbstractIntegratedOnOrderFacilityWithExternalEffects<...>`（`tm_kit/transport/MultiTransportBroadcastListener.hpp:339`），`MultiTransportRemoteFacility` 同样把 `M` 定为 `infra::RealTimeApp<Env>`（`tm_kit/transport/MultiTransportRemoteFacility.hpp:123`）。在 `SinglePassIterationApp` 的图里注册这些节点会得到一大堆模板实例化错误。回测请改用文件 importer 或合成设施。
+`MultiTransportBroadcastListener` 的基类是 `infra::RealTimeApp<Env>::AbstractIntegratedOnOrderFacilityWithExternalEffects<...>`（`tm_kit/transport/MultiTransportBroadcastListener.hpp:372`），`MultiTransportRemoteFacility` 同样把 `M` 定为 `infra::RealTimeApp<Env>`（`tm_kit/transport/MultiTransportRemoteFacility.hpp:123`）。在 `SinglePassIterationApp` 的图里注册这些节点会得到一大堆模板实例化错误。回测请改用文件 importer 或合成设施。
 
 **2. 信道字符串里的空段不能省**
 
@@ -257,11 +266,11 @@ auto heartbeatSource = transport::MultiTransportBroadcastListenerManagingUtils<R
 
 **5. 广播与 facility 支持的传输集合不同**
 
-`nng`、`zeromq`、`multicast`、`shared_memory_broadcast`、`singlecast` 只支持广播；`socket_rpc`、`grpc_interop`、`json_rest` 只支持 facility。把 `zeromq://...` 传给 `setupOneRemoteFacility` 会在运行期抛异常或静默返回 `nullopt`（`parseMultiTransportRemoteFacilityChannel` 返回 `nullopt`）。选传输前先查上面的能力矩阵。
+`nng`、`zeromq`、`multicast`、`shared_memory_broadcast`、`singlecast`、`shm_seqlock`、`shm_cursor`、`aeron_ipc` 只支持广播；`socket_rpc`、`grpc_interop`、`json_rest` 只支持 facility。把 `zeromq://...` 传给 `setupOneRemoteFacility` 会在运行期抛异常或静默返回 `nullopt`（`parseMultiTransportRemoteFacilityChannel` 返回 `nullopt`）。选传输前先查上面的能力矩阵。
 
 **6. `oneBroadcastListener` 对不支持的 channel spec 直接抛 `std::runtime_error`**
 
-与 `setupBroadcastListeners` 不同（后者容忍不支持的传输，因为 spec 可能来自网络），`oneBroadcastListener` 在无法建立监听时抛异常（`tm_kit/transport/MultiTransportBroadcastListenerManagingUtils.hpp:360`）。如果信道字符串来自配置文件，请选用 `setupBroadcastListeners` 族。
+与 `setupBroadcastListeners` 不同（后者容忍不支持的传输，因为 spec 可能来自网络），`oneBroadcastListener` 在无法建立监听时抛异常（`tm_kit/transport/MultiTransportBroadcastListenerManagingUtils.hpp:407`）。如果信道字符串来自配置文件，请选用 `setupBroadcastListeners` 族。
 
 **7. 心跳与告警是所有传输的隐式前提**
 

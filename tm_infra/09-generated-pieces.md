@@ -48,7 +48,7 @@ keywords: [Piece, ClassPiece, 生成代码, 元数, arity, liftPure2, enhancedMa
 它们在宿主类体内被 include，例如：
 
 ```cpp
-// 来源：tm_infra/tm_kit/infra/RealTimeApp.hpp:2116
+// 来源：tm_infra/tm_kit/infra/RealTimeApp.hpp:2224
 #include <tm_kit/infra/RealTimeApp_Merge_Piece.hpp>
 #include <tm_kit/infra/RealTimeApp_PureN_Piece.hpp>
 #include <tm_kit/infra/RealTimeApp_MaybeN_Piece.hpp>
@@ -321,7 +321,7 @@ infra::DeclarativeGraph<R>("", {
 
 解读：
 
-- `ThreadedHandler` 只有实时模式有，因为只有它可能多线程（`PossiblyMultiThreaded == true`，`RealTimeApp.hpp:679`）。
+- `ThreadedHandler` 只有实时模式有，因为只有它可能多线程（`PossiblyMultiThreaded == true`，`RealTimeApp.hpp:787`）。
 - `Provider_Adapter` 只有 `SinglePassIterationApp` 有，因为只有它是拉取式执行，需要把多路 provider 适配成单路（`ProviderAdapter_2_0`，`SinglePassIterationApp_Provider_Adapter_Piece.hpp:1`）。
 - `BasicWithTimeApp` 的片段最少（5 个）且合并得最厉害，因为它不真正执行，生成的东西只要够过类型检查就行。相应地它的文件也最小（970 行 vs 实时模式 4005 行）。
 

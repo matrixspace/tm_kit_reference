@@ -2,7 +2,7 @@
 title: 时间与数据包装类型
 library: tm_infra
 headers: [tm_kit/infra/WithTimeData.hpp, tm_kit/infra/ChronoUtils.hpp, tm_kit/infra/VersionedData.hpp, tm_kit/infra/TupleVariantHelper.hpp]
-keywords: [WithTime, TimedDataWithEnvironment, TimedAppData, TimedAppModelKleisli, TimedAppMultiData, TimedAppModelContinuation, Key, KeyedData, IsKey, IsKeyedData, VersionChecker, VersionedData, GroupedVersionedData, finalFlag, final flag, ChronoUtils, 时区, zoned_time, C++20, 时间戳, withtime_utils, parseLocalTodayActualTime, keyify, resolveTime, TimeChecker, CheckTimeComponent, 时间倒流, TupleVariantHelper]
+keywords: [WithTime, TimedDataWithEnvironment, TimedAppData, TimedAppModelKleisli, TimedAppMultiData, TimedAppModelContinuation, Key, KeyedData, IsKey, IsKeyedData, VersionChecker, VersionedData, GroupedVersionedData, finalFlag, final flag, ChronoUtils, 时区, zoned_time, C++20, 时间戳, withtime_utils, parseLocalTodayActualTime, keyify, resolveTime, TimeChecker, CheckTimeComponent, LockFreeTimeCheckerComponent, MultiThreadedTimeChecker, TimeCheckerMode, VersionCheckerIsTrivial, 无锁, 时间倒流, TupleVariantHelper]
 ---
 
 # 时间与数据包装类型
@@ -183,7 +183,7 @@ struct GroupedVersionedData<...> {
 
 `CmpType` 默认 `std::less<VersionType>`（`VersionedData.hpp:15`、`:40`），所以"更新"的定义是版本号更大；要实现别的顺序（如倒序版本号）换掉 `CmpType` 即可。
 
-#### 现成的 CmpType 实现（`VersionedData.hpp:204`–`:280`）
+#### 现成的 CmpType 实现（`VersionedData.hpp:213`–`:280`）
 
 当版本号本身是个**数组或 map**（例如"每个字段各有一个版本号"的数据模型），默认的 `std::less` 不适用。`VersionedData.hpp` 提供了四个比较器：
 
@@ -197,7 +197,7 @@ struct GroupedVersionedData<...> {
 `ArrayComparerWithSkip` 的核心逻辑（`:219`）：
 
 ```cpp
-// VersionedData.hpp:219-235（节选）
+// VersionedData.hpp:228-244（节选）
 template <class T, std::size_t N>
 struct ArrayComparerWithSkip {
     bool operator()(std::array<T,N> const &a, std::array<T,N> const &b) const {
@@ -257,7 +257,7 @@ class VersionChecker<KeyedData<A,GroupedVersionedData<GroupIDType,VersionType,Da
 
 这就是订阅式行情/状态同步的核心保护：一个订阅请求对应一个 ID，服务端陆续推送带版本的状态更新，网络乱序或重连重放导致的旧版本数据会被自动丢掉。`tm_basic` 的 transaction 模块大量依赖它（`tm_basic/tm_kit/basic/transaction/v2/DataStreamInterface.hpp` 等）。
 
-辅助函数 `updateVersionedData`（`VersionedData.hpp:311`、`:319`）用同一套比较逻辑原地更新一份 `VersionedData`。
+辅助函数 `updateVersionedData`（`VersionedData.hpp:320`、`:319`）用同一套比较逻辑原地更新一份 `VersionedData`。
 
 ### finalFlag 的语义
 
@@ -416,7 +416,7 @@ x.environment->log(infra::LogLevel::Info, infra::withtime_utils::localTimeString
 
 | 时钟组件 | `resolveTime()` | `resolveTime(triggeringInputTime)` |
 |---|---|---|
-| `basic::real_time_clock::ClockComponent` | `Clock::now()`（`tm_basic/tm_kit/basic/real_time_clock/ClockComponent.hpp:26`） | **忽略入参**，仍返回 `Clock::now()`（`:29`） |
+| `basic::real_time_clock::ClockComponent` | `Clock::now()`（`tm_basic/tm_kit/basic/real_time_clock/ClockComponent.hpp:27`） | **忽略入参**，仍返回 `Clock::now()`（`:29`） |
 | `basic::real_time_clock::SimplifiedClockComponent` | 返回默认构造的时间点（`:53`） | 返回 `triggeringInputTime`（`:56`） |
 | `basic::single_pass_iteration_clock::ClockComponent`（亦即 `top_down_single_pass_iteration_clock::ClockComponent`，后者是前者的别名，见 `tm_basic/tm_kit/basic/top_down_single_pass_iteration_clock/ClockComponent.hpp:9`） | `Clock::now()`（`tm_basic/tm_kit/basic/single_pass_iteration_clock/ClockComponent.hpp:17`） | `updateLatestTime(triggeringInputTime)` 后返回 `triggeringInputTime`（`:20`） |
 
@@ -431,17 +431,17 @@ x.environment->log(infra::LogLevel::Info, infra::withtime_utils::localTimeString
 `RealTimeApp` 的 `TimeChecker` 有两个版本，由 `MutexProtected` 模板参数选择：
 
 ```cpp
-// tm_infra/tm_kit/infra/RealTimeApp.hpp:58-60
+// tm_infra/tm_kit/infra/RealTimeApp.hpp:60-63
 template <bool MutexProtected, class T>
 class TimeChecker {};
 template <class T>
-class TimeChecker<false, T> { /* :61 起，成员 bool hasData_ */ };
+class TimeChecker<false, T> { /* :63 起，成员 bool hasData_ */ };
 ```
 
-非保护版（`RealTimeApp.hpp:61`–`:83`）的检查体：
+非保护版（`RealTimeApp.hpp:63`–`:86`）的检查体：
 
 ```cpp
-// tm_infra/tm_kit/infra/RealTimeApp.hpp:67-78
+// tm_infra/tm_kit/infra/RealTimeApp.hpp:70-81
 inline bool operator()(TimedDataWithEnvironment<T, StateT, typename StateT::TimePointType> const &data) {
     if (!versionChecker_.checkVersion(data.timedData.value)) {
         return false;
@@ -457,7 +457,30 @@ inline bool operator()(TimedDataWithEnvironment<T, StateT, typename StateT::Time
 }
 ```
 
-mutex 保护版（`RealTimeApp.hpp:84`–`:109`）逻辑完全相同，区别是：成员 `hasData_` 是 `std::atomic<bool>`、多一个 `std::mutex mutex_`，`operator()` 开头 `std::lock_guard<std::mutex> _(mutex_);`（`:94`）。**用保护版还是非保护版取决于该节点的输入是否可能被多个线程并发推送**；单线程处理器用非保护版省掉锁开销（例如 `ThreadedHandlerBase` 内部用的是 `TimeChecker<false, T>`，`RealTimeApp.hpp:116`）。
+保护版 `TimeChecker<true, T>`（`RealTimeApp.hpp:217`）现在只是 `MultiThreadedTimeChecker<T>` 的薄包装，后者按 `TimeCheckerModeFor<T>::value`（`:120`）在三种实现间编译期选择（枚举 `TimeCheckerMode`，`:113`）：
+
+| 模式 | 选中条件 | 实现 |
+|---|---|---|
+| `Mutex`（`:190`） | **默认**；或输入类型有状态化的 `VersionChecker`（如 `VersionedData`）；或时间点类型无法无锁原子化 | 与旧版完全相同：`std::atomic<bool> hasData_` + `std::mutex`，`operator()` 开头加锁（`:199`） |
+| `Trivial`（`:145`） | 环境含 `LockFreeTimeCheckerComponent` 且 `VersionCheckerIsTrivial<T>` 且 `CheckTime == false` | 无锁；稳态下每次输入只做一次 relaxed load |
+| `AtomicCAS`（`:162`） | 同上但 `CheckTime == true`，且 `TimePointType` 可平凡拷贝、有最小值（`LowestTimePoint`，`:90`）、`std::atomic<TimePointType>::is_always_lock_free` | 对 `std::atomic<TimePointType> lastTime_` 做 CAS 循环，接受规则与 mutex 版相同；并发输入按 CAS 顺序串行化 |
+
+开关是 `infra::LockFreeTimeCheckerComponent`（`tm_infra/tm_kit/infra/Environments.hpp:57`），一个空结构体，放进 Environment 即启用；只影响实时模式。`VersionCheckerIsTrivial<T>`（`tm_infra/tm_kit/infra/VersionedData.hpp:82`）通过主模板 `VersionChecker<T>` 上的 `IsTrivialVersionChecker` 标记（`VersionedData.hpp:74`）识别无状态检查器，特化版本没有这个标记，因此自动回落到 `Mutex`。
+
+```cpp
+// 来源：tm_transport/test/ipc_latency_profiler/IpcLatencyProfiler.cpp:48（已截取，示例代码库 tm_examples 中暂无用例）
+using ProfilerEnvironment = infra::Environment<
+    infra::CheckTimeComponent<false>
+    , infra::LockFreeTimeCheckerComponent
+    , infra::TrivialExitControlComponent
+    , basic::TimeComponentEnhancedWithSpdLogging<ClockComponent, false>
+    , transport::AllNetworkTransportComponents
+>;
+```
+
+代价（源码注释原意）：放弃的是锁在**并发调用者之间**提供的 happens-before 关系；节点自身的处理代码本来就不在这把锁的保护范围内。如果你的节点逻辑隐式依赖"多个输入线程经过同一把锁"来同步共享状态，不要开启它。
+
+**用保护版还是非保护版取决于该节点的输入是否可能被多个线程并发推送**；单线程处理器用非保护版省掉锁开销（例如 `ThreadedHandlerBase` 内部用的是 `TimeChecker<false, T>`，`RealTimeApp.hpp:227`）。
 
 `TopDownSinglePassIterationApp` 只有一个版本（`tm_infra/tm_kit/infra/TopDownSinglePassIterationApp.hpp:158`），逻辑与 `RealTimeApp` 的非保护版一字不差——因为单遍迭代是单线程，不需要锁。
 
@@ -472,7 +495,7 @@ variant 输入的 `TimeChecker` 由生成文件提供（`tm_infra/tm_kit/infra/R
 | 时间戳来源 | 挂钟 `now()`，与输入时间无关 | 触发输入的时间戳，同时推进全局时钟 |
 | 典型 `CheckTimeComponent` | `<false>`（`MainLogic.cpp:41`） | `<true>`（`MainLogic.cpp:192`） |
 | 时间倒流的数据 | 一般不检查（`CheckTime=false`），直接放过 | 检查并丢弃 |
-| `TimeChecker` 版本 | `<false,T>` 与 `<true,T>` 两套，按并发需要选 | 单一版本，无锁 |
+| `TimeChecker` 版本 | `<false,T>` 与 `<true,T>` 两套，按并发需要选；`<true,T>` 可经 `LockFreeTimeCheckerComponent` 改为无锁 | 单一版本，无锁 |
 | `VersionChecker` | 生效 | 生效 |
 | `finalFlag` | 用于摘掉 facility 的请求回调 | 决定下游何时停止拉取，**漏发则永不结束** |
 | `PreserveInputRelativeOrder` | `false` | `true` |
@@ -511,7 +534,7 @@ using TheEnvironment = infra::Environment<
 
 5. **`VersionChecker` 的静默丢弃。** 版本检查**不受 `CheckTimeComponent` 控制**，只要数据类型是 `VersionedData` / `GroupedVersionedData`（或含它的 `KeyedData`），版本不前进的数据就被无声丢掉，没有日志。排查"数据明明发了但下游收不到"时要想到这一层。
 
-6. **`GroupedVersionedData` 的版本是按 group 独立的。** `VersionedData.hpp:96` 的实现用 `unordered_map<GroupIDType, VersionType>`，不同 group 之间互不影响。误以为是全局单调会得出错误结论。
+6. **`GroupedVersionedData` 的版本是按 group 独立的。** `VersionedData.hpp:105` 的实现用 `unordered_map<GroupIDType, VersionType>`，不同 group 之间互不影响。误以为是全局单调会得出错误结论。
 
 7. **`KeyedData` 的 `VersionChecker` 按 ID 分别记。** 一个 ID 的状态推送序列独立于另一个 ID（`WithTimeData.hpp:229`）。所以不同订阅之间版本号不必可比。
 

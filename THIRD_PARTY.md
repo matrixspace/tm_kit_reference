@@ -56,6 +56,7 @@ keywords: [第三方库, third party, 依赖, vcpkg, pkg-config, Boost, gRPC, SO
 | **gRPC**（C++） | `grpc` ⚠️ | gRPC interop 传输 | https://grpc.io/docs/languages/cpp/ | [03-transports/grpc_interop](tm_transport/03-transports/grpc_interop.md) |
 | **Abseil** | 由 gRPC 传递依赖 | gRPC 基础库 | https://abseil.io/ | 同上 |
 | **curlpp** + **libcurl** | `curlpp` | JSON REST 客户端 | http://www.curlpp.org/ · https://curl.se/libcurl/ | [03-transports/json_rest](tm_transport/03-transports/json_rest.md) |
+| **Aeron**（client wrapper + static driver，可选） | CMake `aeron` + `uuid` | `aeron_ipc` 传输；找不到时不编译，所有引用由 `TM_KIT_TRANSPORT_AERON_IPC` 宏门控 | https://github.com/real-logic/aeron · https://aeron.io/docs/ | [03-transports/aeron_ipc](tm_transport/03-transports/aeron_ipc.md) |
 | **IXWebSocket** | `ixwebsocket` | WebSocket 传输（可选后端） | https://github.com/machinezone/IXWebSocket | [03-transports/websocket](tm_transport/03-transports/websocket.md) |
 
 ### 1.5 安全

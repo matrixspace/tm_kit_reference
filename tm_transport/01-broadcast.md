@@ -27,7 +27,7 @@ namespace dev::cd606::tm::transport
 
 ## 核心类型与签名
 
-### 1. 底层节点：`MultiTransportBroadcastListener`（`MultiTransportBroadcastListener.hpp:339`）
+### 1. 底层节点：`MultiTransportBroadcastListener`（`MultiTransportBroadcastListener.hpp:372`）
 
 这是真正干活的节点，继承自 `RealTimeApp<Env>::AbstractIntegratedOnOrderFacilityWithExternalEffects<MultiTransportBroadcastListenerInput, MultiTransportBroadcastListenerOutput, basic::TypedDataWithTopic<T>>` 和 `IControllableNode<Env>`。
 
@@ -52,7 +52,7 @@ using MultiTransportBroadcastListenerOutput = basic::CBOR<
 >;
 ```
 
-订阅描述结构体（`MultiTransportBroadcastListener.hpp:157`）：
+订阅描述结构体（`MultiTransportBroadcastListener.hpp:190`）：
 
 ```cpp
 struct MultiTransportBroadcastListenerAddSubscription {
@@ -67,7 +67,7 @@ struct MultiTransportBroadcastListenerRemoveSubscription {
 struct MultiTransportBroadcastListenerRemoveAllSubscriptions {};    // :205
 ```
 
-构造函数与 `IControllableNode` 接口（`MultiTransportBroadcastListener.hpp:1047`）：
+构造函数与 `IControllableNode` 接口（`MultiTransportBroadcastListener.hpp:1290`）：
 
 ```cpp
 MultiTransportBroadcastListener(std::optional<WireToUserHook> wireToUserHook = std::nullopt);
@@ -76,15 +76,15 @@ void handle(InnerData<Key<MultiTransportBroadcastListenerInput>> &&input) overri
 void control(Env *env, std::string const &command, std::vector<std::string> const &params) override final;  // :1064
 ```
 
-`control` 支持两个命令（`MultiTransportBroadcastListener.hpp:1064`）：
+`control` 支持两个命令（`MultiTransportBroadcastListener.hpp:1307`）：
 - `"stop"` —— 发一条 `RemoveAllSubscriptions`，取消全部订阅并把当前订阅记入 `restartInfo_`
 - `"restart"` —— 从 `restartInfo_` 恢复全部订阅
 
-订阅记录用 `std::map<SubscriptionRecKey, MultiTransportBroadcastListenerAddSubscription>` 保存，其中 `SubscriptionRecKey = std::tuple<ConnectionType, uint32_t>`（`MultiTransportBroadcastListener.hpp:363`）。
+订阅记录用 `std::map<SubscriptionRecKey, MultiTransportBroadcastListenerAddSubscription>` 保存，其中 `SubscriptionRecKey = std::tuple<ConnectionType, uint32_t>`（`MultiTransportBroadcastListener.hpp:396`）。
 
 **实务上你几乎不会直接实例化它**——用下面两个 `ManagingUtils` 类。
 
-### 2. 发布端：`MultiTransportBroadcastPublisherManagingUtils<R>`（`MultiTransportBroadcastPublisherManagingUtils.hpp:22`）
+### 2. 发布端：`MultiTransportBroadcastPublisherManagingUtils<R>`（`MultiTransportBroadcastPublisherManagingUtils.hpp:29`）
 
 ```cpp
 template <class R>
@@ -128,9 +128,9 @@ public:
 
 `threaded=true` 时，函数内部会插入一个 `SuggestThreaded(true)` 的 kleisli 包装节点（名称为 `name+":threadWrapper"`），把序列化与发送挪到后台线程，避免阻塞主数据流。
 
-`oneBroadcastPublisher` 对不可直接序列化的 `OutputType` 会自动套一层 `basic::CBOR<T>`（`MultiTransportBroadcastPublisherManagingUtils.hpp:36`）。
+`oneBroadcastPublisher` 对不可直接序列化的 `OutputType` 会自动套一层 `basic::CBOR<T>`（`MultiTransportBroadcastPublisherManagingUtils.hpp:43`）。
 
-### 3. 订阅端：`MultiTransportBroadcastListenerManagingUtils<R>`（`MultiTransportBroadcastListenerManagingUtils.hpp:31`）
+### 3. 订阅端：`MultiTransportBroadcastListenerManagingUtils<R>`（`MultiTransportBroadcastListenerManagingUtils.hpp:38`）
 
 一个函数族，按"数量 × 是否带 topic × 协议包装"组合：
 
@@ -218,7 +218,7 @@ public:
 };
 ```
 
-#### `MultiTransportBroadcastListenerSpec`（`MultiTransportBroadcastListenerManagingUtils.hpp:24`）
+#### `MultiTransportBroadcastListenerSpec`（`MultiTransportBroadcastListenerManagingUtils.hpp:31`）
 
 ```cpp
 template <class InputType>
@@ -236,7 +236,7 @@ struct MultiTransportBroadcastListenerSpec {
 - `oneBroadcastListener` / `oneBroadcastListenerWithTopic` —— 无法建立监听时**抛 `std::runtime_error`**（`:360`、`:429`）。源码注释（`:332`）解释了理由：这两个函数预期传入"准常量"的信道字符串（不来自网络），所以宁可快速失败。
 - `setupBroadcastListeners` / `setupBroadcastListenersWithTopic` —— **容忍不支持的传输**。源码注释（`:290`）说明：这类函数可能被用来"监听外部消息并据此建立订阅"，如果远端发布了本程序不支持的传输，不应该导致程序崩溃。
 
-### 4. `MultiTransportBroadcastFirstUpdateQueryManagingUtils<Env>`（`MultiTransportBroadcastListenerManagingUtils.hpp:784`）
+### 4. `MultiTransportBroadcastFirstUpdateQueryManagingUtils<Env>`（`MultiTransportBroadcastListenerManagingUtils.hpp:874`）
 
 同步查询工具：连接信道、取第一条（满足谓词的）数据、然后断开。返回 `std::future`。
 
@@ -268,7 +268,7 @@ public:
 
 ### 5. topic 的通配符适配
 
-不同传输的通配符语法不同，框架做了自动转换（`MultiTransportBroadcastListener.hpp:248`、`:256`、`:265`）：
+不同传输的通配符语法不同，框架做了自动转换（`MultiTransportBroadcastListener.hpp:281`、`:256`、`:265`）：
 
 | 传输 | topic 为空时的默认值 | `#` 的处理 |
 |---|---|---|
@@ -386,7 +386,7 @@ auto sources = transport::MultiTransportBroadcastListenerManagingUtils<R>
 
 **1. publisher 的 Sink 类型是 `TypedDataWithTopic<T>`，不是 `T`**
 
-`oneBroadcastPublisher<T>` 返回 `Sink<basic::TypedDataWithTopic<T>>`（`MultiTransportBroadcastPublisherManagingUtils.hpp:34`）。直接 `r.connect(r.actionAsSource(someAction<T>), publisherSink)` 会编译失败。必须先经过 `addConstTopic`（固定 topic）或 `addTopic`（从数据里取 topic）。
+`oneBroadcastPublisher<T>` 返回 `Sink<basic::TypedDataWithTopic<T>>`（`MultiTransportBroadcastPublisherManagingUtils.hpp:41`）。直接 `r.connect(r.actionAsSource(someAction<T>), publisherSink)` 会编译失败。必须先经过 `addConstTopic`（固定 topic）或 `addTopic`（从数据里取 topic）。
 
 **2. `oneBroadcastListener` 抛异常，`setupBroadcastListeners` 静默跳过**
 
@@ -398,19 +398,19 @@ auto sources = transport::MultiTransportBroadcastListenerManagingUtils<R>
 
 **4. `control("stop")` 之后的订阅需要 `control("restart")` 才能恢复**
 
-`MultiTransportBroadcastListener::control` 在收到 `"stop"` 时把当前订阅存入 `restartInfo_` 并全部取消（`MultiTransportBroadcastListener.hpp:1061`）。**若在 stop 与 restart 之间又新增了订阅，那些新订阅不会进 `restartInfo_`**——因为 `restartInfo_` 只在 stop 时填充。需要动态增删订阅请直接用 `AddSubscription`/`RemoveSubscription` 指令。
+`MultiTransportBroadcastListener::control` 在收到 `"stop"` 时把当前订阅存入 `restartInfo_` 并全部取消（`MultiTransportBroadcastListener.hpp:1304`）。**若在 stop 与 restart 之间又新增了订阅，那些新订阅不会进 `restartInfo_`**——因为 `restartInfo_` 只在 stop 时填充。需要动态增删订阅请直接用 `AddSubscription`/`RemoveSubscription` 指令。
 
 **5. `threaded=true` 会插入额外的命名节点，节点名冲突会报错**
 
-`threaded=true` 时内部注册 `name+":threadWrapper"`（`MultiTransportBroadcastPublisherManagingUtils.hpp:59`）。同一 `r` 上若已有同名节点，`registerAction` 会失败。给 publisher 起名时保证全局唯一。
+`threaded=true` 时内部注册 `name+":threadWrapper"`（`MultiTransportBroadcastPublisherManagingUtils.hpp:66`）。同一 `r` 上若已有同名节点，`registerAction` 会失败。给 publisher 起名时保证全局唯一。
 
 **6. `oneBroadcastPublisher` 对不可直接序列化类型自动套 CBOR，可能与对端协议不符**
 
-`oneBroadcastPublisher<T>` 在 `DirectlySerializableChecker<T>::IsDirectlySerializable()` 为 false 时自动改用 `CBOR<T>`（`MultiTransportBroadcastPublisherManagingUtils.hpp:36`）。如果对端期待的是 Proto 或 Json 编码，收到的是 CBOR，会解析失败。需要明确 wire 协议时请用 `oneBroadcastPublisherWithProtocol<Proto, T>` 或 `<Json, T>`。
+`oneBroadcastPublisher<T>` 在 `DirectlySerializableChecker<T>::IsDirectlySerializable()` 为 false 时自动改用 `CBOR<T>`（`MultiTransportBroadcastPublisherManagingUtils.hpp:43`）。如果对端期待的是 Proto 或 Json 编码，收到的是 CBOR，会解析失败。需要明确 wire 协议时请用 `oneBroadcastPublisherWithProtocol<Proto, T>` 或 `<Json, T>`。
 
 **7. `fetchTypedFirstUpdateAndDisconnect` 返回 `future`，不 `get()` 就永远不会连接**
 
-该函数（`MultiTransportBroadcastListenerManagingUtils.hpp:921`）返回 `std::future`，真正的连接动作在异步任务中执行。若拿到 future 后既不 `get()` 也不 `wait()`，程序可能在连接建立前就退出。此外，若 `predicate` 永不满足，future 永不就绪——**必须保证有超时或谓词一定可满足**。
+该函数（`MultiTransportBroadcastListenerManagingUtils.hpp:1051`）返回 `std::future`，真正的连接动作在异步任务中执行。若拿到 future 后既不 `get()` 也不 `wait()`，程序可能在连接建立前就退出。此外，若 `predicate` 永不满足，future 永不就绪——**必须保证有超时或谓词一定可满足**。
 
 **8. 心跳订阅本身也要占一条信道**
 
@@ -429,10 +429,13 @@ auto sources = transport::MultiTransportBroadcastListenerManagingUtils<R>
 | `zeromq/ZeroMQComponent.hpp` | libzmq + cppzmq | `libzmq`, `cppzmq` |
 | `nng/NNGComponent.hpp` | nngpp | `nngpp` |
 | `shared_memory_broadcast/SharedMemoryBroadcastComponent.hpp` | Boost.Interprocess | `boost` |
+| `shm_seqlock/ShmSeqlockComponent.hpp` | 无（Linux `/dev/shm` + futex） | —— |
+| `shm_cursor/ShmCursorComponent.hpp` | 无（Linux `/dev/shm` + futex） | —— |
+| `aeron_ipc/AeronIpcComponent.hpp` | Aeron（C/C++ client + driver）、libuuid | `aeron`（CMake）、`uuid` |
 | `websocket/WebSocketComponent.hpp` | IXWebSocket | `ixwebsocket` |
 | `singlecast/SinglecastComponent.hpp` | Boost.Asio | `boost` |
 
-此外 `MultiTransportBroadcastListenerManagingUtils.hpp` 引入 `basic/AppRunnerUtils.hpp` 与 `basic/WrapFacilitioidConnectorForSerialization.hpp`，而 `MultiTransportBroadcastPublisherManagingUtils.hpp:17` 额外引入后者用于协议包装。
+此外 `MultiTransportBroadcastListenerManagingUtils.hpp` 引入 `basic/AppRunnerUtils.hpp` 与 `basic/WrapFacilitioidConnectorForSerialization.hpp`，而 `MultiTransportBroadcastPublisherManagingUtils.hpp:24` 额外引入后者用于协议包装。
 
 官方文档：RabbitMQ-C https://github.com/alanxz/rabbitmq-c · hiredis https://github.com/redis/hiredis · libnats https://github.com/nats-io/nats.c · ZeroMQ https://zeromq.org/ · nngpp https://github.com/nanomsg/nngpp · IXWebSocket https://github.com/machinezone/IXWebSocket
 

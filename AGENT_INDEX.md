@@ -10,7 +10,7 @@ tm_infra  ──►  tm_basic  ──►  tm_transport
   图与节点       时钟/序列化/事务     进程间通信
 ```
 
-完整参考文档 51 篇、约 16,468 行，就在本仓库里。单篇 3k–14k token，**整包约 38 万 token，不要一次性全读**。
+完整参考文档 54 篇、约 17,176 行，就在本仓库里。单篇 3k–14k token，**整包约 38 万 token，不要一次性全读**。
 
 ## 怎么用这套文档
 
@@ -19,7 +19,7 @@ tm_infra  ──►  tm_basic  ──►  tm_transport
 | 层 | 内容 | 什么时候用 |
 |---|---|---|
 | **常驻** | 就是本文件 | 每次会话自动加载。铁律 + 路由表足够覆盖大部分情况 |
-| **单篇** | 51 篇文档文件 | 要写某类代码时，按下面的路由表或关键词索引定位，然后整篇 Read |
+| **单篇** | 54 篇文档文件 | 要写某类代码时，按下面的路由表或关键词索引定位，然后整篇 Read |
 | **检索** | `tools/tm_docs` | 路由表里找不到时用它搜；比盲 grep 准 |
 
 ```bash
@@ -115,13 +115,13 @@ tm_infra  ──►  tm_basic  ──►  tm_transport
 | `DelaySimulator` | 忽略 | 生效（模拟逻辑耗时） |
 | 结束方式 | `terminationController` 阻塞 main | `finalize()` 返回即结束 |
 
-> **文档校验版本**：2026-10-10 — 51 篇 / 16468 行
+> **文档校验版本**：2026-11-03 — 54 篇 / 17176 行
 >
 > | 库 | commit | 日期 |
 > |---|---|---|
-> | `tm_infra` | `f3432a9` | 2026-10-10 |
-> | `tm_basic` | `b254469` | 2026-10-10 |
-> | `tm_transport` | `d6ddb0e` | 2026-10-10 |
+> | `tm_infra` | `f569d42` | 2026-11-03 |
+> | `tm_basic` | `00b91cc` | 2026-11-03 |
+> | `tm_transport` | `ec70f48` | 2026-11-03 |
 >
 > 下游若 pin 的 tm_kit 版本与此不同，文档描述的 API 可能已经变了。
 > 核对方法：`python3 tools/stamp_versions.py --check`（需三个库在同一 workspace 下）。
@@ -154,6 +154,7 @@ tm_infra  ──►  tm_basic  ──►  tm_transport
 | [`tm_transport/00-overview.md`](tm_transport/00-overview.md) | tm_transport 概览 |
 | [`tm_transport/01-broadcast.md`](tm_transport/01-broadcast.md) | 广播：listener 与 publisher |
 | [`tm_transport/02-facilities.md`](tm_transport/02-facilities.md) | 远程设施（on-order facility over transport） |
+| [`tm_transport/03-transports/aeron_ipc.md`](tm_transport/03-transports/aeron_ipc.md) | aeron_ipc 传输 |
 | [`tm_transport/03-transports/grpc_interop.md`](tm_transport/03-transports/grpc_interop.md) | GrpcInterop 传输 |
 | [`tm_transport/03-transports/json_rest.md`](tm_transport/03-transports/json_rest.md) | JsonREST 传输 |
 | [`tm_transport/03-transports/multicast.md`](tm_transport/03-transports/multicast.md) | Multicast 传输 |
@@ -162,6 +163,8 @@ tm_infra  ──►  tm_basic  ──►  tm_transport
 | [`tm_transport/03-transports/rabbitmq.md`](tm_transport/03-transports/rabbitmq.md) | RabbitMQ 传输 |
 | [`tm_transport/03-transports/redis.md`](tm_transport/03-transports/redis.md) | Redis 传输 |
 | [`tm_transport/03-transports/shared_memory_broadcast.md`](tm_transport/03-transports/shared_memory_broadcast.md) | SharedMemoryBroadcast 传输 |
+| [`tm_transport/03-transports/shm_cursor.md`](tm_transport/03-transports/shm_cursor.md) | shm_cursor 传输 |
+| [`tm_transport/03-transports/shm_seqlock.md`](tm_transport/03-transports/shm_seqlock.md) | shm_seqlock 传输 |
 | [`tm_transport/03-transports/singlecast.md`](tm_transport/03-transports/singlecast.md) | Singlecast 传输 |
 | [`tm_transport/03-transports/socket_rpc.md`](tm_transport/03-transports/socket_rpc.md) | SocketRPC 传输 |
 | [`tm_transport/03-transports/websocket.md`](tm_transport/03-transports/websocket.md) | WebSocket 传输 |

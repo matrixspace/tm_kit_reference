@@ -100,7 +100,7 @@ public:
 
 ### 5. topic 通配符的特殊处理
 
-NATS 自己的通配符是 `*`（单级）与 `>`（多级，只能出现在末尾）。框架把 `#` 转成 `*` 以统一书写（`tm_kit/transport/MultiTransportBroadcastListener.hpp:257` 的 `natsTopicHelper`）：
+NATS 自己的通配符是 `*`（单级）与 `>`（多级，只能出现在末尾）。框架把 `#` 转成 `*` 以统一书写（`tm_kit/transport/MultiTransportBroadcastListener.hpp:290` 的 `natsTopicHelper`）：
 
 ```cpp
 static std::string natsTopicHelper(std::string const &input) {
@@ -155,7 +155,7 @@ transport::MultiTransportFacilityWrapper<R>::wrap<Query, Reply>(
 
 **1. `#` 会被转成 `*`，但两者语义并不等价**
 
-框架对 NATS 做 `#` → `*` 替换（`tm_kit/transport/MultiTransportBroadcastListener.hpp:257`）。AMQP 的 `#` 是"零个或多个词"，NATS 的 `*` 是"恰好一个词"。写 `simple_demo.#.heartbeat` 时，RabbitMQ 能匹配 `simple_demo.a.b.heartbeat`，NATS 不能。
+框架对 NATS 做 `#` → `*` 替换（`tm_kit/transport/MultiTransportBroadcastListener.hpp:290`）。AMQP 的 `#` 是"零个或多个词"，NATS 的 `*` 是"恰好一个词"。写 `simple_demo.#.heartbeat` 时，RabbitMQ 能匹配 `simple_demo.a.b.heartbeat`，NATS 不能。
 
 **2. NATS 的 `>` 不会被转换，但只能是最后一个 token**
 

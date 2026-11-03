@@ -1,8 +1,8 @@
 ---
 title: 时钟组件
 library: tm_basic
-headers: [tm_kit/basic/real_time_clock/ClockComponent.hpp, tm_kit/basic/real_time_clock/Clock.hpp, tm_kit/basic/real_time_clock/ClockImporter.hpp, tm_kit/basic/real_time_clock/ClockOnOrderFacility.hpp, tm_kit/basic/single_pass_iteration_clock/ClockComponent.hpp, tm_kit/basic/top_down_single_pass_iteration_clock/ClockComponent.hpp, tm_kit/basic/empty_clock/ClockComponent.hpp]
-keywords: [ClockComponent, real_time_clock, single_pass_iteration_clock, top_down_single_pass_iteration_clock, empty_clock, ClockImporter, ClockOnOrderFacility, 时钟, TimePoint, resolveTime, createOneShotTimer, createRecurringTimer, PreserveInputRelativeOrder, CanBeActualTimeClock, TimeComponentEnhancedWithBoostTrivialLogging, TimeComponentEnhancedWithSpdLogging]
+headers: [tm_kit/basic/real_time_clock/ClockComponent.hpp, tm_kit/basic/real_time_clock/TscClock.hpp, tm_kit/basic/real_time_clock/Clock.hpp, tm_kit/basic/real_time_clock/ClockImporter.hpp, tm_kit/basic/real_time_clock/ClockOnOrderFacility.hpp, tm_kit/basic/single_pass_iteration_clock/ClockComponent.hpp, tm_kit/basic/top_down_single_pass_iteration_clock/ClockComponent.hpp, tm_kit/basic/empty_clock/ClockComponent.hpp]
+keywords: [ClockComponent, real_time_clock, single_pass_iteration_clock, top_down_single_pass_iteration_clock, empty_clock, ClockImporter, ClockOnOrderFacility, 时钟, TimePoint, resolveTime, createOneShotTimer, createRecurringTimer, PreserveInputRelativeOrder, CanBeActualTimeClock, TimeComponentEnhancedWithBoostTrivialLogging, TimeComponentEnhancedWithSpdLogging, TscClock, TscClockComponent, rdtsc, invariant TSC, 低延迟时钟]
 ---
 
 # 时钟组件
@@ -27,7 +27,7 @@ tm_kit/basic/empty_clock/              — BasicWithTimeApp 专用
 ### 1. `real_time_clock::ClockComponent`
 
 ```cpp
-// tm_basic/tm_kit/basic/real_time_clock/ClockComponent.hpp:11
+// tm_basic/tm_kit/basic/real_time_clock/ClockComponent.hpp:12
 namespace dev::cd606::tm::basic::real_time_clock {
 
 class ClockComponent : public Clock {
@@ -71,6 +71,35 @@ class SimplifiedClockComponent : public Clock {
 ```
 
 `real_time_clock::ClockComponent` 的 `resolveTime()` 调用 `Clock::now()`（即挂钟）；`SimplifiedClockComponent` 的 `resolveTime(tp)` 直接透传 `tp`，适合不需要精确时间戳但仍要运行在实时模式的场景。
+
+### 1b. `real_time_clock::TscClockComponent`（低延迟挂钟）
+
+```cpp
+// tm_basic/tm_kit/basic/real_time_clock/ClockComponent.hpp:72
+class TscClockComponent : public ClockComponent {
+public:
+    TscClockComponent();
+    explicit TscClockComponent(TscClock::Options const &options);
+    TimePointType now();                                   // tsc_->now()
+    TimePointType resolveTime();                           // tsc_->now()
+    TimePointType resolveTime(TimePointType const &);      // 忽略入参，tsc_->now()
+    TscClock::Stats tscStats() const;                      // :91
+    bool usesTsc() const;                                  // :94
+};
+```
+
+`ClockComponent` 的直接替换：`now()` / `resolveTime()` 改读 TSC 推算的挂钟（`TscClock`，`tm_basic/tm_kit/basic/real_time_clock/TscClock.hpp:47`），**定时器不变**，仍走 `system_clock`。时间戳仍是 `system_clock` 纪元下的真实时间。
+
+`TscClock` 的要点（均出自头文件注释）：
+
+- 读数 = `rdtsc` + seqlock 保护的线性映射，开销约为 `system_clock::now()` 的三分之一。
+- 每隔 `resyncInterval`（默认 100ms）由第一个发现超时的读者惰性重新锚定，并以不超过 `maxSlewPpm`（默认 1000）的速率向 `system_clock` 收敛。
+- **读数保证单调不减**：`system_clock` 向后调整（NTP step、手工改时间）不会被跟随，时钟保持速率直到系统时间追上；向前跳超过 `stepThreshold`（默认 1ms）则直接前跳。
+- CPU 无 invariant TSC 或非 x86-64 时退回 `system_clock::now()`，并对已返回的最大值做钳制，同样单调（每次读数多一个原子操作）。`usesTsc()` 可查实际走了哪条路径；`Options::forceSystemClock` 可强制退回。
+
+`Options` 字段：`resyncInterval`、`stepThreshold`、`maxSlewPpm`、`initialCalibration`（默认 5ms）、`forceSystemClock`（`TscClock.hpp:50`）。`Stats` 字段：`resyncs`、`steps`、`lastErrorNs`（上次重锚时 `system_clock` 减本时钟）、`ticksPerNs`（`:57`）。
+
+替换方式是把时钟模板参数换掉，示例代码库中暂无用例；tm_transport 的 `test/ipc_latency_profiler/IpcLatencyProfiler.cpp:470` 以 `TimeComponentEnhancedWithSpdLogging<basic::real_time_clock::TscClockComponent, false>` 的形式使用。
 
 ### 2. `single_pass_iteration_clock::ClockComponent<TimePoint>`
 
@@ -203,6 +232,9 @@ auto importer1 = basic::real_time_clock::ClockImporter<TheEnvironment>
 
 **4. `createRecurringTimer` 的取消器**  
 返回值是一个 `std::function<void()>`，调用它可取消定时器。若不保存取消器就丢弃，定时器会永久运行直到进程退出，即使相关节点已析构。
+
+**5. `TscClockComponent` 的时间戳与 `system_clock` 不完全一致**  
+误差上限见 `tscStats().lastErrorNs`。系统时间被往回调后，它会在一段时间内领先于 `system_clock`；跨进程比较时间戳（一端用 TSC、一端用挂钟）时要考虑这点。另外它的定时器仍按 `system_clock` 触发，与 `now()` 来源不同。
 
 ## 第三方依赖
 

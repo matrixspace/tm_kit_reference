@@ -270,7 +270,7 @@ public:
 };
 ```
 
-`RealTimeApp` 在 `TwoWayHolder` 和 `OneWayHolder` 中通过 `dynamic_cast` 检测节点是否实现了这两个接口（见 `tm_infra/tm_kit/infra/RealTimeApp.hpp:766`），并把接口指针暴露给框架。
+`RealTimeApp` 在 `TwoWayHolder` 和 `OneWayHolder` 中通过 `dynamic_cast` 检测节点是否实现了这两个接口（见 `tm_infra/tm_kit/infra/RealTimeApp.hpp:874`），并把接口指针暴露给框架。
 
 实际场景中，自定义节点可继承这两个接口，实现类似"动态调参"或"实时状态监控"的功能。`tm_basic` 的某些组件（如 `GraphControlFacility`）正是通过这一机制实现图的在线控制。
 

@@ -171,4 +171,5 @@ locator 用 `identifier` 作共享内存段名（`:216`、`:427`），而 `ident
 - [广播](../01-broadcast.md) — 通用广播接口
 - [multicast 传输](multicast.md) — 跨机的低延迟替代方案
 - [ZeroMQ 传输](zeromq.md) — 支持 IPC（`ipc://`）的同机方案
+- [shm_seqlock 传输](shm_seqlock.md) / [shm_cursor 传输](shm_cursor.md) / [aeron_ipc 传输](aeron_ipc.md) — Linux 下更低延迟的同机 SPMC 方案
 - [各传输能力矩阵](../00-overview.md)

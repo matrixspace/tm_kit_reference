@@ -2,7 +2,7 @@
 title: Environment 组件混合模型
 library: tm_infra
 headers: [tm_kit/infra/Environments.hpp]
-keywords: [Environment, component, 组件, 虚继承, mixin, finalizeEnvironment, CheckTimeComponent, TrivialExitControlComponent, FlagExitControlComponent, ConstValueHolderComponent, HiddenTimeDependencyComponent, NoHiddenTimeDependencyComponent, EmptyEnvironment]
+keywords: [Environment, component, 组件, 虚继承, mixin, finalizeEnvironment, CheckTimeComponent, TrivialExitControlComponent, FlagExitControlComponent, ConstValueHolderComponent, HiddenTimeDependencyComponent, NoHiddenTimeDependencyComponent, EmptyEnvironment, LockFreeTimeCheckerComponent]
 ---
 
 # Environment 组件混合模型
@@ -128,7 +128,7 @@ doTouchups();
 
 ### 内置组件
 
-`Environments.hpp` 自带五个组件，都极小。
+`Environments.hpp` 自带六个组件，都极小。
 
 **`CheckTimeComponent<bool DoCheck>`** —— 纯编译期开关：
 
@@ -144,10 +144,19 @@ struct CheckTimeComponent {
 
 注意**版本检查不受它控制**：同一段代码里 `versionChecker0_.checkVersion(...)` 在 `if (StateT::CheckTime)` 之外，无条件执行。
 
+**`LockFreeTimeCheckerComponent`** —— 空标记组件，**仅实时模式、opt-in**：
+
+```cpp
+// 来源：tm_infra/tm_kit/infra/Environments.hpp:57
+struct LockFreeTimeCheckerComponent {};
+```
+
+放进 Environment 后，`RealTimeApp` 中可能被多线程并发推送的非线程节点，在输入类型没有版本状态时（`VersionCheckerIsTrivial<T>`，`tm_infra/tm_kit/infra/VersionedData.hpp:82`）跳过 mutex：`CheckTime=false` 时完全无锁，`CheckTime=true` 时用 CAS 循环做单调时间检查。`VersionedData` 等有版本状态的输入仍走 mutex。代价是丢掉了锁提供的并发调用者之间的 happens-before 关系。细节见 [时间与数据](07-time-and-data.md#时间倒流检查timechecker-与-checktimecomponent)。示例代码库中暂无用例；tm_transport 的 `test/ipc_latency_profiler/IpcLatencyProfiler.cpp:50` 有用法。
+
 **`TrivialExitControlComponent`** —— `running()` 恒为 true，`exit()` 直接终止进程：
 
 ```cpp
-// 来源：tm_infra/tm_kit/infra/Environments.hpp:46
+// 来源：tm_infra/tm_kit/infra/Environments.hpp:59
 struct TrivialExitControlComponent {
     static constexpr bool running() {
         return true;
@@ -163,7 +172,7 @@ struct TrivialExitControlComponent {
 **`FlagExitControlComponent`** —— 用一个 atomic 标志实现可优雅退出：
 
 ```cpp
-// 来源：tm_infra/tm_kit/infra/Environments.hpp:55
+// 来源：tm_infra/tm_kit/infra/Environments.hpp:68
 class FlagExitControlComponent {
 private:
     std::atomic<bool> running_ = true;
@@ -182,7 +191,7 @@ public:
 **`ConstValueHolderComponent<T>`** —— 往 Environment 里塞一个只读的业务值：
 
 ```cpp
-// 来源：tm_infra/tm_kit/infra/Environments.hpp:67
+// 来源：tm_infra/tm_kit/infra/Environments.hpp:80
 template <class T>
 class ConstValueHolderComponent {
 private:
@@ -215,7 +224,7 @@ env.infra::template ConstValueHolderComponent<EnvValues<Chain>>::operator=(
 **`EmptyEnvironment<TimePoint>`** —— 不是组件，是个独立的、`final` 的最小 Environment：
 
 ```cpp
-// 来源：tm_infra/tm_kit/infra/Environments.hpp:93
+// 来源：tm_infra/tm_kit/infra/Environments.hpp:106
 template <class TimePoint=std::chrono::system_clock::time_point>
 class EmptyEnvironment final {
 public:
@@ -241,7 +250,7 @@ public:
 ### 两个时间依赖标记
 
 ```cpp
-// 来源：tm_infra/tm_kit/infra/Environments.hpp:86
+// 来源：tm_infra/tm_kit/infra/Environments.hpp:99
 //These marks hidden/no hidden time dependency inside the environment
 //Currently this affects TopDown execution scheme, but it may
 //affect others in the future

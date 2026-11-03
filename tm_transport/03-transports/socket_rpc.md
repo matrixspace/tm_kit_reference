@@ -13,7 +13,7 @@ keywords: [socket_rpc, SocketRPCComponent, SocketRPCOnOrderFacility, 裸 TCP, �
 
 适合：进程间的高频请求-响应（如策略进程 → 风控前置的实时校验）、对延迟敏感的 RPC。不适合：需要一对多订阅（用广播传输）、需要跨语言互操作（用 `grpc_interop` 或 `json_rest`）。
 
-**注意：SocketRPC 只支持 facility，不支持广播**——`MultiTransportBroadcastListenerConnectionType`（`tm_kit/transport/MultiTransportBroadcastListener.hpp:89`）中没有它。
+**注意：SocketRPC 只支持 facility，不支持广播**——`MultiTransportBroadcastListenerConnectionType`（`tm_kit/transport/MultiTransportBroadcastListener.hpp:113`）中没有它。
 
 ## 头文件与命名空间
 
@@ -132,7 +132,7 @@ auto riskCheck = transport::MultiTransportRemoteFacilityManagingUtils<R>
 
 **2. 只有 facility，没有广播**
 
-`MultiTransportBroadcastListenerConnectionType` 中没有 socket_rpc（`tm_kit/transport/MultiTransportBroadcastListener.hpp:89`）。把 `socket_rpc://...` 传给 `oneBroadcastListener` 会抛 `std::runtime_error`。
+`MultiTransportBroadcastListenerConnectionType` 中没有 socket_rpc（`tm_kit/transport/MultiTransportBroadcastListener.hpp:113`）。把 `socket_rpc://...` 传给 `oneBroadcastListener` 会抛 `std::runtime_error`。
 
 **3. 需要在图启动前确保服务端先监听**
 

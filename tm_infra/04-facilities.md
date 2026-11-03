@@ -56,7 +56,7 @@ if (cycleRet) {
 发现环只记 Warning。所以规则是：**图中每个环至少要含一个 facility**。
 
 四个 app 类型目前都把 `CannotHaveLoopEvenWithFacilities` 设为 `false`
-（`RealTimeApp.hpp:680`、`TopDownSinglePassIterationApp.hpp:94`、`SinglePassIterationApp.hpp:64`、
+（`RealTimeApp.hpp:788`、`TopDownSinglePassIterationApp.hpp:94`、`SinglePassIterationApp.hpp:64`、
 `BasicWithTimeApp.hpp:21`），因此含 facility 的环在四种模式下都只告警。
 `detectCycle` 本身定义在 `WithTimeData.hpp:2798`。
 
@@ -129,18 +129,18 @@ struct KeyedData {
 
 ### 普通 OnOrderFacility
 
-类型定义 `RealTimeApp.hpp:1797`：`OnOrderFacility<A,B> = TwoWayHolder<AbstractOnOrderFacility<A,B>,A,B>`。
-抽象基类 `AbstractOnOrderFacility` 在 `RealTimeApp.hpp:523`，继承
+类型定义 `RealTimeApp.hpp:1905`：`OnOrderFacility<A,B> = TwoWayHolder<AbstractOnOrderFacility<A,B>,A,B>`。
+抽象基类 `AbstractOnOrderFacility` 在 `RealTimeApp.hpp:631`，继承
 `IHandler<Key<A>>` 与 `OnOrderFacilityProducer<KeyedData<A,B>>`。
 
 四个 lift 入口，与 action 的形态矩阵一一对应（见 [03-nodes-and-lifting.md](03-nodes-and-lifting.md)）：
 
 | 函数 | 行号 | 业务函数签名 |
 |---|---|---|
-| `liftPureOnOrderFacility<A>(f, liftParam)` | `RealTimeApp.hpp:1800` | `B(A&&)` |
-| `liftMaybeOnOrderFacility<A>(f, liftParam)` | `RealTimeApp.hpp:1809` | `std::optional<B>(A&&)` |
-| `enhancedMaybeOnOrderFacility<A>(f, liftParam)` | `RealTimeApp.hpp:1818` | `std::optional<B>(std::tuple<TimePoint,A>&&)` |
-| `kleisliOnOrderFacility<A>(f, liftParam)` | `RealTimeApp.hpp:1827` | `M::Data<B>(M::InnerData<A>&&)` |
+| `liftPureOnOrderFacility<A>(f, liftParam)` | `RealTimeApp.hpp:1908` | `B(A&&)` |
+| `liftMaybeOnOrderFacility<A>(f, liftParam)` | `RealTimeApp.hpp:1917` | `std::optional<B>(A&&)` |
+| `enhancedMaybeOnOrderFacility<A>(f, liftParam)` | `RealTimeApp.hpp:1926` | `std::optional<B>(std::tuple<TimePoint,A>&&)` |
+| `kleisliOnOrderFacility<A>(f, liftParam)` | `RealTimeApp.hpp:1935` | `M::Data<B>(M::InnerData<A>&&)` |
 
 注意业务函数收到的是**裸 `A`**（不是 `Key<A>`），返回**裸 `B`**（不是 `KeyedData`）——
 tag 的提取与回填由框架完成。这正是 pure facility 写起来和普通函数一样简单的原因。
@@ -160,14 +160,14 @@ static auto liftPureOnOrderFacility(F &&f, LiftParameters<TimePoint> const &lift
 
 | 函数 | 行号 |
 |---|---|
-| `liftPureOnOrderFacilityWithStart<A>(f, startF, liftParam)` | `RealTimeApp.hpp:1841` |
-| `liftMaybeOnOrderFacilityWithStart<A>(f, startF, liftParam)` | `RealTimeApp.hpp:1850` |
-| `enhancedMaybeOnOrderFacilityWithStart<A>(f, startF, liftParam)` | `RealTimeApp.hpp:1859` |
-| `kleisliOnOrderFacilityWithStart<A>(f, startF, liftParam)` | `RealTimeApp.hpp:1868` |
+| `liftPureOnOrderFacilityWithStart<A>(f, startF, liftParam)` | `RealTimeApp.hpp:1949` |
+| `liftMaybeOnOrderFacilityWithStart<A>(f, startF, liftParam)` | `RealTimeApp.hpp:1958` |
+| `enhancedMaybeOnOrderFacilityWithStart<A>(f, startF, liftParam)` | `RealTimeApp.hpp:1967` |
+| `kleisliOnOrderFacilityWithStart<A>(f, startF, liftParam)` | `RealTimeApp.hpp:1976` |
 
 `startF` 的用途：这些变体的实现类 `OnOrderFacilityCoreWithStart`
-（`RealTimeApp.hpp:1696`、`1698`、`1742`）**额外继承 `IExternalComponent`**，因此会被 AppRunner
-在图启动阶段调用；`startF_(env)` 在 `RealTimeApp.hpp:1730`（threaded 版）与 `1772`（非 threaded 版）
+（`RealTimeApp.hpp:1804`、`1698`、`1742`）**额外继承 `IExternalComponent`**，因此会被 AppRunner
+在图启动阶段调用；`startF_(env)` 在 `RealTimeApp.hpp:1838`（threaded 版）与 `1772`（非 threaded 版）
 被执行一次，参数是 Environment 指针。
 
 用法场景：facility 需要在开始处理请求之前做一次初始化——连接外部系统、订阅行情、预热缓存。
@@ -178,13 +178,13 @@ static auto liftPureOnOrderFacility(F &&f, LiftParameters<TimePoint> const &lift
 facility + exporter 的捆绑，**额外接收一路辅助输入**（如状态更新），用于让 facility 的响应依赖
 外部喂进来的数据。
 
-- 类型别名 `RealTimeApp.hpp:2822`：`ThreeWayHolder<AbstractOnOrderFacility<Q,R>, ..., AbstractExporter<DataInputType>, DataInputType>`
-- `localOnOrderFacility(facilityPtr, exporterPtr)` —— `RealTimeApp.hpp:2827`
-- `AbstractIntegratedLocalOnOrderFacility<Q,R,D>` —— `RealTimeApp.hpp:2834`，让一个类同时实现两边
-- `localOnOrderFacility(integratedPtr)` —— `RealTimeApp.hpp:2842`
-- `localOnOrderFacility(Fac&&, Exp&&)` —— `RealTimeApp.hpp:2847`，从已有的 facility 与 exporter 组装
-- `wrappedLocalOnOrderFacility(toWrap, inputT, outputT)` —— `RealTimeApp.hpp:2867`
-- `simpleWrappedLocalOnOrderFacility(toWrap, inputT, outputT)` —— `RealTimeApp.hpp:2893`
+- 类型别名 `RealTimeApp.hpp:2930`：`ThreeWayHolder<AbstractOnOrderFacility<Q,R>, ..., AbstractExporter<DataInputType>, DataInputType>`
+- `localOnOrderFacility(facilityPtr, exporterPtr)` —— `RealTimeApp.hpp:2935`
+- `AbstractIntegratedLocalOnOrderFacility<Q,R,D>` —— `RealTimeApp.hpp:2942`，让一个类同时实现两边
+- `localOnOrderFacility(integratedPtr)` —— `RealTimeApp.hpp:2950`
+- `localOnOrderFacility(Fac&&, Exp&&)` —— `RealTimeApp.hpp:2955`，从已有的 facility 与 exporter 组装
+- `wrappedLocalOnOrderFacility(toWrap, inputT, outputT)` —— `RealTimeApp.hpp:2975`
+- `simpleWrappedLocalOnOrderFacility(toWrap, inputT, outputT)` —— `RealTimeApp.hpp:3001`
 
 源码在 `RealTimeApp.hpp:2806-2820` 解释了为何用"两个指针的元组"而非单一对象：为了让 facility 分支
 与 exporter 分支能分别被组合。代价是 `LocalOnOrderFacility` **不管理这两个指针的内存**
@@ -193,13 +193,13 @@ facility + exporter 的捆绑，**额外接收一路辅助输入**（如状态�
 ### OnOrderFacilityWithExternalEffects
 
 facility + importer 的捆绑，是 `LocalOnOrderFacility` 的对偶（源码原话 "the dual of
-LocalOnOrderFacility"，`RealTimeApp.hpp:2914`）：facility 除了响应请求，还会**主动往图里推数据**。
+LocalOnOrderFacility"，`RealTimeApp.hpp:3022`）：facility 除了响应请求，还会**主动往图里推数据**。
 
-- 类型别名 `RealTimeApp.hpp:2923`
-- `onOrderFacilityWithExternalEffects(facilityPtr, importerPtr)` —— `RealTimeApp.hpp:2928`
-- `AbstractIntegratedOnOrderFacilityWithExternalEffects<Q,R,D>` —— `RealTimeApp.hpp:2935`
-- `onOrderFacilityWithExternalEffects(integratedPtr)` —— `RealTimeApp.hpp:2945`
-- 组装版 —— `RealTimeApp.hpp:2951`；`wrapped...` —— `2970`；`simpleWrapped...` —— `2996`
+- 类型别名 `RealTimeApp.hpp:3031`
+- `onOrderFacilityWithExternalEffects(facilityPtr, importerPtr)` —— `RealTimeApp.hpp:3036`
+- `AbstractIntegratedOnOrderFacilityWithExternalEffects<Q,R,D>` —— `RealTimeApp.hpp:3043`
+- `onOrderFacilityWithExternalEffects(integratedPtr)` —— `RealTimeApp.hpp:3053`
+- 组装版 —— `RealTimeApp.hpp:3059`；`wrapped...` —— `2970`；`simpleWrapped...` —— `2996`
 
 注意命名陷阱，源码注释 `RealTimeApp.hpp:2917-2921` 已说明：模板参数叫 `DataInputType`，
 但它实际是**从 facility 流出**的数据类型；"input" 是从图外部视角看的叫法，为避免大量改动而保留。
@@ -209,25 +209,25 @@ LocalOnOrderFacility"，`RealTimeApp.hpp:2914`）：facility 除了响应请求�
 facility + exporter + importer 三合一，即前两者的并集。源码注释
 （`RealTimeApp.hpp:3018-3022`）说明 VIE 之名来自"看起来像本地 facility，却有复杂的境外连接"。
 
-- 类型别名 `RealTimeApp.hpp:3024`（`FourWayHolder`）
-- `vieOnOrderFacility(facilityPtr, exporterPtr, importerPtr)` —— `RealTimeApp.hpp:3030`
-- `AbstractIntegratedVIEOnOrderFacility<Q,R,ExtraIn,ExtraOut>` —— `RealTimeApp.hpp:3038`
+- 类型别名 `RealTimeApp.hpp:3132`（`FourWayHolder`）
+- `vieOnOrderFacility(facilityPtr, exporterPtr, importerPtr)` —— `RealTimeApp.hpp:3138`
+- `AbstractIntegratedVIEOnOrderFacility<Q,R,ExtraIn,ExtraOut>` —— `RealTimeApp.hpp:3146`
   （别名 `AbstractIntegratedVIEOnOrderFacilityWithPublish` 在 `3047`）
-- `vieOnOrderFacility(integratedPtr)` —— `RealTimeApp.hpp:3049`
-- 组装版 —— `RealTimeApp.hpp:3055`；`wrappedVIEOnOrderFacility` —— `3078`；
+- `vieOnOrderFacility(integratedPtr)` —— `RealTimeApp.hpp:3157`
+- 组装版 —— `RealTimeApp.hpp:3163`；`wrappedVIEOnOrderFacility` —— `3078`；
   `simpleWrappedVIEOnOrderFacility` —— `3107`
 
-这里 "input" / "output" 是**从 VIE facility 自身视角**看的（`RealTimeApp.hpp:3022`），与
+这里 "input" / "output" 是**从 VIE facility 自身视角**看的（`RealTimeApp.hpp:3130`），与
 `OnOrderFacilityWithExternalEffects` 的外部视角命名相反，混用时要特别小心。
 
 ### 包装与变换
 
 | 函数 | 行号 | 说明 |
 |---|---|---|
-| `wrappedOnOrderFacility<I0,O0,I1,O1>(toWrap, inputT, outputT)` | `RealTimeApp.hpp:1972` | 用两个 action 转换输入输出类型，`Action<Key<I0>,Key<I1>>` 与 `Action<Key<O1>,Key<O0>>` |
-| `simpleWrappedOnOrderFacility<I0,O0,Fac>(toWrap, inputT, outputT)` | `RealTimeApp.hpp:2066` | 用两个普通函数转换；`outputT` 形如 `O0(Fac::InputType const &, Fac::OutputType &&)` |
-| `fromAbstractAction<A,B>(ptr)` | `RealTimeApp.hpp:1882` | 从手写的 `AbstractAction` 子类构造 action |
-| `fromAbstractOnOrderFacility<A,B>(ptr)` | `RealTimeApp.hpp:1886` | 从手写的 `AbstractOnOrderFacility` 子类构造 facility |
+| `wrappedOnOrderFacility<I0,O0,I1,O1>(toWrap, inputT, outputT)` | `RealTimeApp.hpp:2080` | 用两个 action 转换输入输出类型，`Action<Key<I0>,Key<I1>>` 与 `Action<Key<O1>,Key<O0>>` |
+| `simpleWrappedOnOrderFacility<I0,O0,Fac>(toWrap, inputT, outputT)` | `RealTimeApp.hpp:2174` | 用两个普通函数转换；`outputT` 形如 `O0(Fac::InputType const &, Fac::OutputType &&)` |
+| `fromAbstractAction<A,B>(ptr)` | `RealTimeApp.hpp:1990` | 从手写的 `AbstractAction` 子类构造 action |
+| `fromAbstractOnOrderFacility<A,B>(ptr)` | `RealTimeApp.hpp:1994` | 从手写的 `AbstractOnOrderFacility` 子类构造 facility |
 
 `wrappedOnOrderFacility` 走 action，所以转换本身也是图节点，可以带时间语义；
 `simpleWrappedOnOrderFacility` 走普通函数，更轻量。注意后者的 `outputT` 能同时看到**原始请求**
@@ -551,7 +551,7 @@ r.registerOnOrderFacility("calculator facility", facility);
 auto facility = M::localOnOrderFacility(new Facility<M>());
 ```
 
-这里传的是单个 `AbstractIntegratedLocalOnOrderFacility` 子类指针，走 `RealTimeApp.hpp:2842` 的重载。
+这里传的是单个 `AbstractIntegratedLocalOnOrderFacility` 子类指针，走 `RealTimeApp.hpp:2950` 的重载。
 随后它在 `DeclarativeGraph` 里既作为 facility 被下单，又作为 exporter 接收辅助输入：
 
 ```cpp
@@ -603,7 +603,7 @@ auto clockFacility = ClockFacility::template createClockCallback<simple_demo::Ca
   actions, not to on-order facilities"。
 - **`OnOrderFacilityWithExternalEffects` 的 `DataInputType` 实际是输出。** 源码注释
   `RealTimeApp.hpp:2917-2921` 承认这是历史命名。而 `VIEOnOrderFacility` 的 in/out 又是自身视角
-  （`RealTimeApp.hpp:3022`），两者方向相反。
+  （`RealTimeApp.hpp:3130`），两者方向相反。
 - **`LocalOnOrderFacility` 不管理指针内存。** 见 `RealTimeApp.hpp:2806-2820`。传进去的对象必须活到
   程序结束，别传栈上对象。
 - **一个 facility 接多个 wrapper 需要先放宽连接数。** 不调 `setMaxOutputConnectivity`

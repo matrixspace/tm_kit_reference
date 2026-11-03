@@ -81,4 +81,9 @@ keywords: [术语, glossary, 中英对照, importer, exporter, action, facility]
 | shared chain | 共享链 | 可被多进程追加与读取的持久化单向链表，用作事件溯源存储 |
 | chain folder | chain folder | 把链上数据折叠成状态的函数对象 |
 | transaction | 事务 | 带版本校验的状态读写协议，见 tm_basic 的 transaction 模块 |
+| seqlock | seqlock（顺序锁） | 写者递增序号、读者拷贝后校验序号的无锁读协议；`shm_seqlock` 逐槽使用 |
+| SPMC | 单生产者多消费者 | single-producer multi-consumer；`shm_seqlock` / `shm_cursor` / `aeron_ipc` 的模型 |
+| lapped | 被套圈 | 读者落后超过环形缓冲容量，被写者覆盖未读消息 |
+| TSC | 时间戳计数器 | CPU 的 time stamp counter，`TscClock` 用 `rdtsc` 读取 |
+| lock-free time checker | 无锁时间检查 | `LockFreeTimeCheckerComponent` 开启的 `TimeChecker<true,T>` 无锁实现 |
 | identity checker | 身份校验 | 对 facility 调用方附加/校验身份的组件 |

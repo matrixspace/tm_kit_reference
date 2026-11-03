@@ -41,11 +41,11 @@ multicast://groupAddress:port[envelop=cbor][ignoreTopic=false][interface=eth0]
 | `host` | 组播组地址（如 `239.255.0.1`） | —— |
 | `port` | 端口 | —— |
 | `identifier` | 未使用 | —— |
-| `envelop` | topic 编码方式 | `cbor`（`src/multicast/MulticastComponent.cpp:537`） |
+| `envelop` | topic 编码方式 | `cbor`（`src/multicast/MulticastComponent.cpp:588`） |
 | `ignoreTopic` | 为 `true` 时把信封强制为 `binary`（不带 topic） | `false`（`:538`） |
 | `interface` | 指定发送/接收网卡 | `""`（由系统路由决定，`:541`） |
 
-`envelop` 的取值（`src/multicast/MulticastComponent.cpp:24` 的 `parseEncodingChoice`）：
+`envelop` 的取值（`src/multicast/MulticastComponent.cpp:25` 的 `parseEncodingChoice`）：
 
 | 取值 | 含义 |
 |---|---|
@@ -84,7 +84,7 @@ public:
 };
 ```
 
-同一 `host:port` 只建立一个底层订阅（`src/multicast/MulticastComponent.cpp:533` 的 `subscriptions_` 按 `ConnectionLocator{host,port}` 索引，**忽略属性**），多个 topic 过滤条件挂在同一订阅上。
+同一 `host:port` 只建立一个底层订阅（`src/multicast/MulticastComponent.cpp:584` 的 `subscriptions_` 按 `ConnectionLocator{host,port}` 索引，**忽略属性**），多个 topic 过滤条件挂在同一订阅上。
 
 ### 4. 原生不支持 on-order facility，但可用合成设施绕过
 
@@ -145,7 +145,7 @@ auto subscriber = transport::multicast::MulticastImporterExporter<M>
 
 **2. `ignoreTopic=true` 会强制把 `envelop` 覆盖为 `binary`**
 
-`src/multicast/MulticastComponent.cpp:538` 明确：`ignoreTopic` 为 true 时 `choice` 被**重新赋值**为 `Binary`，覆盖你写的 `envelop`。也就是说订阅端用 `ignoreTopic=true` 而发布端用默认 `envelop=cbor` 时，接收方会按纯二进制解析带 CBOR 信封的数据，得到乱码。
+`src/multicast/MulticastComponent.cpp:589` 明确：`ignoreTopic` 为 true 时 `choice` 被**重新赋值**为 `Binary`，覆盖你写的 `envelop`。也就是说订阅端用 `ignoreTopic=true` 而发布端用默认 `envelop=cbor` 时，接收方会按纯二进制解析带 CBOR 信封的数据，得到乱码。
 
 **3. 多网卡机器必须指定 `interface`**
 

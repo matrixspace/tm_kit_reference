@@ -38,9 +38,9 @@ tm_infra 是 TM Kit 的最底层库，只做一件事：**定义数据流图（d
 
 这三类节点在 `RealTimeApp` 中分别对应三个类型别名：
 
-- `Importer` —— `tm_infra/tm_kit/infra/RealTimeApp.hpp:2129`
-- `Exporter` —— `tm_infra/tm_kit/infra/RealTimeApp.hpp:2558`
-- `Action` —— `tm_infra/tm_kit/infra/RealTimeApp.hpp:1146`
+- `Importer` —— `tm_infra/tm_kit/infra/RealTimeApp.hpp:2237`
+- `Exporter` —— `tm_infra/tm_kit/infra/RealTimeApp.hpp:2666`
+- `Action` —— `tm_infra/tm_kit/infra/RealTimeApp.hpp:1254`
 
 节点本身只是"持有者"（`OneWayHolder` / `TwoWayHolder`），真正的实现在它内部的 core 对象里。节点创建后要注册进 `AppRunner`，再用 `execute` / `connect` 一类调用把 source 接到 sink 上，这部分见 [05-app-runner.md](05-app-runner.md) 与 [06-declarative-graph.md](06-declarative-graph.md)。
 
@@ -96,10 +96,10 @@ facility 用一套与 action 不同的连接语法接入图，这使得**图中�
 
 | 变体 | 组成 | 定义位置（RealTimeApp 中） |
 |---|---|---|
-| `OnOrderFacility<A,B>` | 纯 facility | `tm_infra/tm_kit/infra/RealTimeApp.hpp:1797` |
-| `LocalOnOrderFacility<A,B,C>` | facility + exporter | `tm_infra/tm_kit/infra/RealTimeApp.hpp:2822` |
-| `OnOrderFacilityWithExternalEffects<A,B,C>` | facility + importer | `tm_infra/tm_kit/infra/RealTimeApp.hpp:2923` |
-| `VIEOnOrderFacility<A,B,C,D>` | facility + importer + exporter | `tm_infra/tm_kit/infra/RealTimeApp.hpp:3024` |
+| `OnOrderFacility<A,B>` | 纯 facility | `tm_infra/tm_kit/infra/RealTimeApp.hpp:1905` |
+| `LocalOnOrderFacility<A,B,C>` | facility + exporter | `tm_infra/tm_kit/infra/RealTimeApp.hpp:2930` |
+| `OnOrderFacilityWithExternalEffects<A,B,C>` | facility + importer | `tm_infra/tm_kit/infra/RealTimeApp.hpp:3031` |
+| `VIEOnOrderFacility<A,B,C,D>` | facility + importer + exporter | `tm_infra/tm_kit/infra/RealTimeApp.hpp:3132` |
 
 要点：捆绑的几个指针**可以指向同一个对象**（该对象同时实现多个接口），这正是 facility 拿到辅助数据的途径——框架不追求节点纯函数化，facility 持有指针与别的节点共享状态是被允许的。`VIE` 取自 "variable interest entity"（可变利益实体），延续生产/贸易的比喻。
 

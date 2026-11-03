@@ -103,6 +103,9 @@ tm_infra  ──►  tm_basic  ──►  tm_transport  ──►  tm_examples
 | NATS | ✓ | ✓ | [nats.md](tm_transport/03-transports/nats.md) |
 | NNG | ✓ | ✗ | [nng.md](tm_transport/03-transports/nng.md) |
 | SharedMemoryBroadcast | ✓ | ✗ | [shared_memory_broadcast.md](tm_transport/03-transports/shared_memory_broadcast.md) |
+| ShmSeqlock（Linux） | ✓ | ✗ | [shm_seqlock.md](tm_transport/03-transports/shm_seqlock.md) |
+| ShmCursor（Linux） | ✓ | ✗ | [shm_cursor.md](tm_transport/03-transports/shm_cursor.md) |
+| AeronIpc（Linux，可选） | ✓ | ✗ | [aeron_ipc.md](tm_transport/03-transports/aeron_ipc.md) |
 | SocketRPC | ✗ | ✓ | [socket_rpc.md](tm_transport/03-transports/socket_rpc.md) |
 | WebSocket | ✓ | ✓ | [websocket.md](tm_transport/03-transports/websocket.md) |
 | JsonREST | ✗ | ✓ | [json_rest.md](tm_transport/03-transports/json_rest.md) |

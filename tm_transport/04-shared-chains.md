@@ -67,7 +67,7 @@ using AllChainComponents = infra::Environment<
 
 注意包含 `infra::HiddenTimeDependencyComponent`——链的时间戳来自数据本身，而不是环境的时钟。这是链能在回测中忠实重放时序的前提。
 
-> `HiddenTimeDependencyComponent` 现在**已无实际作用**：`tm_infra/tm_kit/infra/Environments.hpp:89` 的注释说明"隐藏时间依赖"在 top-down 模式下**已是默认开启**，要**关闭**才需要显式放入 `NoHiddenTimeDependencyComponent`。`AllChainComponents` 里保留它只是历史兼容。
+> `HiddenTimeDependencyComponent` 现在**已无实际作用**：`tm_infra/tm_kit/infra/Environments.hpp:102` 的注释说明"隐藏时间依赖"在 top-down 模式下**已是默认开启**，要**关闭**才需要显式放入 `NoHiddenTimeDependencyComponent`。`AllChainComponents` 里保留它只是历史兼容。
 
 ### 3. `SharedChainCreator<App>`（`SharedChainCreator.hpp:254`）
 

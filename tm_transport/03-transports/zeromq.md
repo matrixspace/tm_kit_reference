@@ -41,7 +41,7 @@ zeromq://host:port            # TCP 模式
 zeromq://host:port:::identifier   # inproc / ipc 模式（identifier 作为地址）
 ```
 
-`host` 字段有三类取值，决定底层 ZeroMQ 地址的构造方式（`src/zeromq/ZeroMQComponent.cpp:51`）：
+`host` 字段有三类取值，决定底层 ZeroMQ 地址的构造方式（`src/zeromq/ZeroMQComponent.cpp:54`）：
 
 | `host` 取值 | 构造出的 ZeroMQ 地址 | 说明 |
 |---|---|---|
@@ -85,10 +85,10 @@ public:
 };
 ```
 
-注意 `topic` 参数的类型是 `std::variant<NoTopicSelection, std::string, std::regex>`——**与 RabbitMQ/Redis 的 `std::string` 不同**。它支持三种模式（匹配实现在 `src/zeromq/ZeroMQComponent.cpp:89`、`:94`）：
+注意 `topic` 参数的类型是 `std::variant<NoTopicSelection, std::string, std::regex>`——**与 RabbitMQ/Redis 的 `std::string` 不同**。它支持三种模式（匹配实现在 `src/zeromq/ZeroMQComponent.cpp:101`、`:106`）：
 
 - `NoTopicSelection{}` —— 不过滤，收全部
-- `std::string` —— **精确相等**匹配（`data.topic == std::get<0>(f)`，`:89`），不是前缀匹配
+- `std::string` —— **精确相等**匹配（`decoded_.topic == std::get<0>(f)`，`:101`），不是前缀匹配
 - `std::regex` —— 正则匹配（`std::regex_match`，`:94`）
 
 **过滤在客户端进行**，消息仍会全部到达本进程。
@@ -164,7 +164,7 @@ ZeroMQ 的 `bind` 在 publisher 侧，subscriber 用 `connect`。如果 subscrib
 
 **4. `std::string` 类型的 topic 是精确匹配，不是前缀匹配**
 
-`createTypedImporter` 传 `std::string` 时用的是 `data.topic == topic`（`src/zeromq/ZeroMQComponent.cpp:89`）。想匹配一类 topic 必须用 `std::regex`，不能用"前缀字符串"。这与 RabbitMQ（AMQP 通配）和 Redis（glob）的直觉相反，是最容易踩的坑。
+`createTypedImporter` 传 `std::string` 时用的是 `decoded_.topic == std::get<0>(f)`（`src/zeromq/ZeroMQComponent.cpp:101`）。想匹配一类 topic 必须用 `std::regex`，不能用"前缀字符串"。这与 RabbitMQ（AMQP 通配）和 Redis（glob）的直觉相反，是最容易踩的坑。
 
 **5. 慢订阅者会积压，最终可能阻塞 publisher**
 

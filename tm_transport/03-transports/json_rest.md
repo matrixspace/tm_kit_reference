@@ -9,7 +9,7 @@ keywords: [json_rest, JsonRESTComponent, JsonRESTClientFacility, JsonRESTFacilit
 
 ## 用途
 
-基于 **HTTP + JSON** 的传输。**只支持 on-order facility（HTTP 请求-响应），不支持广播**——`MultiTransportBroadcastListenerConnectionType`（`tm_kit/transport/MultiTransportBroadcastListener.hpp:89`）中没有它。
+基于 **HTTP + JSON** 的传输。**只支持 on-order facility（HTTP 请求-响应），不支持广播**——`MultiTransportBroadcastListenerConnectionType`（`tm_kit/transport/MultiTransportBroadcastListener.hpp:113`）中没有它。
 
 两个方向都能用：
 
@@ -164,7 +164,7 @@ auto restFacility = transport::json_rest::JsonRESTClientFacilityFactory<TheEnvir
 
 **1. 只有 facility，没有广播**
 
-`json_rest://` 不能用于 `oneBroadcastListener`/`oneBroadcastPublisher`（`MultiTransportBroadcastListenerConnectionType` 中没有它，`tm_kit/transport/MultiTransportBroadcastListener.hpp:89`）。需要给前端推送数据用 [websocket](websocket.md)。
+`json_rest://` 不能用于 `oneBroadcastListener`/`oneBroadcastPublisher`（`MultiTransportBroadcastListenerConnectionType` 中没有它，`tm_kit/transport/MultiTransportBroadcastListener.hpp:113`）。需要给前端推送数据用 [websocket](websocket.md)。
 
 **2. REST 不支持非字符串身份**
 
