@@ -192,6 +192,7 @@ Redis 是单线程处理命令的。发布大消息（MB 级）会阻塞该 Redi
 
 ## 相关章节
 
+- [各传输的并发支持](../08-concurrency.md) — 本传输的多进程 / 多线程读写结论
 - [广播](../01-broadcast.md) — 通用广播接口
 - [远程设施](../02-facilities.md) — `setupSimpleRemoteFacility` 等
 - [共享链后端](../04-shared-chains.md) — `RedisChain`，支持持久化与历史读取

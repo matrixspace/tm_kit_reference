@@ -239,6 +239,7 @@ gRPC + Abseil + protobuf 会显著增大二进制与编译时间。仓库根 `CL
 
 ## 相关章节
 
+- [各传输的并发支持](../08-concurrency.md) — 本传输的多进程 / 多线程读写结论
 - [远程设施](../02-facilities.md) — `MultiTransportFacilityWrapper::wrapWithProtocol` 统一入口
 - [transaction v2](../../tm_basic/09-transaction.md) — 示例中被暴露的 transaction facility 来自 `transactionLogicCombination`
 - [序列化格式](../../tm_basic/03-serialization.md) — `proto_interop::Proto` 包装器

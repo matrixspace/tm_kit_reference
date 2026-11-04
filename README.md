@@ -90,6 +90,7 @@ tm_infra  ──►  tm_basic  ──►  tm_transport  ──►  tm_examples
 | 05 | [心跳与告警](tm_transport/05-heartbeat-and-alert.md) | HeartbeatMessage、服务发现前提 | `HeartbeatAndAlertComponent.hpp` |
 | 06 | [安全与身份校验](tm_transport/06-security.md) | Hook、identity checker、签名、TLS | `ByteDataHook.hpp`, `TLSConfigurationComponent.hpp` |
 | 07 | [键值存储组件](tm_transport/07-kv-store-components.md) | 只读查询、DB 表事务、DB 导入导出 | `complex_key_value_store_components/*`, `db_table_importer_exporter/*` |
+| 08 | [并发支持](tm_transport/08-concurrency.md) | 各传输多进程 / 多线程读写矩阵、心跳共用信道风险 | `MultiTransportBroadcastPublisherManagingUtils.hpp`, `HeartbeatAndAlertComponent.hpp` |
 
 #### 03-transports 的 12 个传输
 

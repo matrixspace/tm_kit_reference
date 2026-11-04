@@ -157,6 +157,7 @@ Boost.Asio 官方文档：https://www.boost.org/doc/libs/release/doc/html/boost_
 
 ## 相关章节
 
+- [各传输的并发支持](../08-concurrency.md) — 本传输的多进程 / 多线程读写结论
 - [广播](../01-broadcast.md) — 通用广播接口
 - [multicast 传输](multicast.md) — 组播版本；`envelop`/`ignoreTopic` 语义相同
 - [各传输能力矩阵](../00-overview.md)

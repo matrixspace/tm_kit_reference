@@ -201,6 +201,7 @@ topic+payload 超过 `slotSize` 时消息不会发出，计入 `ShmSeqlockPublis
 
 ## 相关章节
 
+- [各传输的并发支持](../08-concurrency.md) — 本传输的多进程 / 多线程读写结论
 - [shm_cursor 传输](shm_cursor.md) — 同为 Linux SPMC 共享内存，全局游标设计
 - [aeron_ipc 传输](aeron_ipc.md) — 基于 Aeron 媒体驱动的 IPC
 - [shared_memory_broadcast 传输](shared_memory_broadcast.md) — 跨平台的 Boost.Interprocess 方案

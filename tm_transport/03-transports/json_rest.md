@@ -210,6 +210,7 @@ facility 的 `Key<A>` 语义依赖框架自己维护。如果服务端处理时�
 
 ## 相关章节
 
+- [各传输的并发支持](../08-concurrency.md) — 本传输的多进程 / 多线程读写结论
 - [远程设施](../02-facilities.md) — facility 客户端与服务端包装
 - [websocket 传输](websocket.md) — 需要服务端推送时用这个
 - [安全与身份校验](../06-security.md) — REST 场景下的身份设计

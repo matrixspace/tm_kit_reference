@@ -158,6 +158,7 @@ Boost.Asio 官方文档：https://www.boost.org/doc/libs/release/doc/html/boost_
 
 ## 相关章节
 
+- [各传输的并发支持](../08-concurrency.md) — 本传输的多进程 / 多线程读写结论
 - [远程设施](../02-facilities.md) — `setupSimpleRemoteFacility`、`setupOneNonDistinguishedRemoteFacility`
 - [grpc_interop 传输](grpc_interop.md) — 需要跨语言或 schema 时替代
 - [json_rest 传输](json_rest.md) — HTTP/JSON 版本

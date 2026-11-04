@@ -207,6 +207,7 @@ AMQP 的 vhost 不是 `host:port` 的一部分，必须写 `[vhost=/myvhost]`。
 
 ## 相关章节
 
+- [各传输的并发支持](../08-concurrency.md) — 本传输的多进程 / 多线程读写结论
 - [广播](../01-broadcast.md) — `oneBroadcastListener` / `oneBroadcastPublisher` 的通用用法
 - [远程设施](../02-facilities.md) — `setupOneNonDistinguishedRemoteFacility` 等
 - [各传输能力矩阵](../00-overview.md) — 与其他传输的对比

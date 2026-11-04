@@ -237,6 +237,7 @@ auto subscriptionFacility = transport::MultiTransportRemoteFacilityManagingUtils
 
 ## 相关章节
 
+- [各传输的并发支持](../08-concurrency.md) — 本传输的多进程 / 多线程读写结论
 - [广播](../01-broadcast.md) — 通用广播接口
 - [远程设施](../02-facilities.md) — facility 客户端设置
 - [各传输能力矩阵](../00-overview.md)

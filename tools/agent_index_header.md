@@ -93,6 +93,7 @@ tm_infra  ──►  tm_basic  ──►  tm_transport
 | 跨进程 RPC / 远程设施 | `tm_transport/02-facilities.md` |
 | 选传输（RabbitMQ / ZeroMQ / gRPC…） | `tm_transport/00-overview.md` + `tm_transport/03-transports/` |
 | 服务发现 / 心跳 | `tm_transport/05-heartbeat-and-alert.md` |
+| 传输的多进程 / 多线程安全性 | `tm_transport/08-concurrency.md` |
 | 签名 / 身份校验 / TLS | `tm_transport/06-security.md` |
 | 数据库表当数据源 / 链后端 | `tm_transport/07-kv-store-components.md`、`tm_transport/04-shared-chains.md` |
 | 找示例代码 | `EXAMPLES_MAP.md` |

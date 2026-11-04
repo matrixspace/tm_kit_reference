@@ -171,6 +171,7 @@ Boost.Asio 官方文档：https://www.boost.org/doc/libs/release/doc/html/boost_
 
 ## 相关章节
 
+- [各传输的并发支持](../08-concurrency.md) — 本传输的多进程 / 多线程读写结论
 - [广播](../01-broadcast.md) — 通用广播接口
 - [singlecast 传输](singlecast.md) — UDP 单播版本
 - [ZeroMQ 传输](zeromq.md) — 另一种无 broker 的一对多方案（TCP）

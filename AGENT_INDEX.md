@@ -10,7 +10,7 @@ tm_infra  ──►  tm_basic  ──►  tm_transport
   图与节点       时钟/序列化/事务     进程间通信
 ```
 
-完整参考文档 54 篇、约 17,176 行，就在本仓库里。单篇 3k–14k token，**整包约 38 万 token，不要一次性全读**。
+完整参考文档 55 篇、约 17,540 行，就在本仓库里。单篇 3k–14k token，**整包约 38 万 token，不要一次性全读**。
 
 ## 怎么用这套文档
 
@@ -19,7 +19,7 @@ tm_infra  ──►  tm_basic  ──►  tm_transport
 | 层 | 内容 | 什么时候用 |
 |---|---|---|
 | **常驻** | 就是本文件 | 每次会话自动加载。铁律 + 路由表足够覆盖大部分情况 |
-| **单篇** | 54 篇文档文件 | 要写某类代码时，按下面的路由表或关键词索引定位，然后整篇 Read |
+| **单篇** | 55 篇文档文件 | 要写某类代码时，按下面的路由表或关键词索引定位，然后整篇 Read |
 | **检索** | `tools/tm_docs` | 路由表里找不到时用它搜；比盲 grep 准 |
 
 ```bash
@@ -96,6 +96,7 @@ tm_infra  ──►  tm_basic  ──►  tm_transport
 | 跨进程 RPC / 远程设施 | `tm_transport/02-facilities.md` |
 | 选传输（RabbitMQ / ZeroMQ / gRPC…） | `tm_transport/00-overview.md` + `tm_transport/03-transports/` |
 | 服务发现 / 心跳 | `tm_transport/05-heartbeat-and-alert.md` |
+| 传输的多进程 / 多线程安全性 | `tm_transport/08-concurrency.md` |
 | 签名 / 身份校验 / TLS | `tm_transport/06-security.md` |
 | 数据库表当数据源 / 链后端 | `tm_transport/07-kv-store-components.md`、`tm_transport/04-shared-chains.md` |
 | 找示例代码 | `EXAMPLES_MAP.md` |
@@ -173,6 +174,7 @@ tm_infra  ──►  tm_basic  ──►  tm_transport
 | [`tm_transport/05-heartbeat-and-alert.md`](tm_transport/05-heartbeat-and-alert.md) | 心跳与告警 |
 | [`tm_transport/06-security.md`](tm_transport/06-security.md) | 安全与身份校验 |
 | [`tm_transport/07-kv-store-components.md`](tm_transport/07-kv-store-components.md) | 键值存储组件 |
+| [`tm_transport/08-concurrency.md`](tm_transport/08-concurrency.md) | 各传输的并发支持 |
 | [`BUILD.md`](BUILD.md) | 构建与安装 |
 
 > 章节的文件名含序号，同库内按序排列即推荐阅读顺序。

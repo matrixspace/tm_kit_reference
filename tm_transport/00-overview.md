@@ -176,6 +176,8 @@ using TheEnvironment = infra::Environment<
 
 > 标 ✗ 的传输并非完全不能承载 facility：`SyntheticMultiTransportFacility` 可以用**两条广播信道**（请求一条、响应一条）在应用层合成请求-响应语义，从而让 facility 跑在 multicast / ZeroMQ / NNG 这类只有广播能力的传输上（示例见 `tm_examples/db_one_list_subscription/DBOneListSubscriptionServer.cpp:292`）。代价是失去了服务端的寻址与派发——所有响应对所有监听者可见。详见 [远程设施](02-facilities.md)。
 
+> 各传输能否多进程 / 多线程读写，见 [各传输的并发支持](08-concurrency.md)。
+
 ### 5. 钩子（Hook）与身份校验（Identity）
 
 两个横切概念贯穿全部传输：
@@ -308,5 +310,6 @@ auto heartbeatSource = transport::MultiTransportBroadcastListenerManagingUtils<R
 - [心跳与告警](05-heartbeat-and-alert.md) — 服务发现的基础设施
 - [安全与身份校验](06-security.md) — Hook 与 identity checker
 - [键值存储组件](07-kv-store-components.md) — `complex_key_value_store` / `named_value_store` / DB 表导入导出
+- [各传输的并发支持](08-concurrency.md) — 多进程读/写、进程内多线程读/写矩阵
 - [AppRunner 连接与控制](../tm_infra/05-app-runner.md) — `registerImporter`、`connect`、`controlAll`
 - [Environment 组件组合](../tm_infra/02-environments.md) — `infra::Environment` 的虚继承混合模型

@@ -185,6 +185,7 @@ ZeroMQ 的 pub socket 有高水位标记（HWM）。订阅者处理不过来时�
 
 ## 相关章节
 
+- [各传输的并发支持](../08-concurrency.md) — 本传输的多进程 / 多线程读写结论
 - [广播](../01-broadcast.md) — 通用广播接口
 - [各传输能力矩阵](../00-overview.md) — ZeroMQ 不支持 facility
 - [multicast 传输](multicast.md) — 另一种无 broker 的一对多方案

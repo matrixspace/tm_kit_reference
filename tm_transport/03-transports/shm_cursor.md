@@ -150,6 +150,7 @@ slot 里有 16 字节头。超限消息被拒，计入 `publisherRejectedCount`�
 
 ## 相关章节
 
+- [各传输的并发支持](../08-concurrency.md) — 本传输的多进程 / 多线程读写结论
 - [shm_seqlock 传输](shm_seqlock.md) — 每 slot seqlock 设计，统计更细
 - [aeron_ipc 传输](aeron_ipc.md)
 - [shared_memory_broadcast 传输](shared_memory_broadcast.md)

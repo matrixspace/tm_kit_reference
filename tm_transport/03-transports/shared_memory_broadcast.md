@@ -168,6 +168,7 @@ locator 用 `identifier` 作共享内存段名（`:216`、`:427`），而 `ident
 
 ## 相关章节
 
+- [各传输的并发支持](../08-concurrency.md) — 本传输的多进程 / 多线程读写结论
 - [广播](../01-broadcast.md) — 通用广播接口
 - [multicast 传输](multicast.md) — 跨机的低延迟替代方案
 - [ZeroMQ 传输](zeromq.md) — 支持 IPC（`ipc://`）的同机方案

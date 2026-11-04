@@ -65,7 +65,8 @@ public:
 | `imagesJoined` | 见到的发布者 session（image）数 |
 | `skippedOnJoin` | `joinLatest` 丢弃的积压分片数 |
 | `clientRebuilds` | driver 消失后重建 Aeron client 的次数 |
-| `malformed` | 格式错误的分片 |
+| `malformed` | 格式错误的分片（topic 长度超出帧） |
+| `overrun` | 帧头复核不一致、判定 term 已被复用而丢弃的分片数；大于 0 说明有回调长时间阻塞或超时参数设置过短 |
 
 ### 2. Locator 语法（`AeronIpcComponent.hpp:24`–`:57`）
 
@@ -87,7 +88,7 @@ aeron_ipc://::::<name>[prop=value,prop=value,...]
 | `maxSleepUs` | lowcpu 模式最长睡眠 | `1000` |
 | `joinLatest` | 读者首次看到发布者 session 时丢弃已提交积压，从最新消息开始 | `true` |
 | `tether` | `false`：慢读者不能无限期拖住发布者 | `false` |
-| `untetheredWindowLimitTimeoutMs` / `untetheredLingerTimeoutMs` / `untetheredRestingTimeoutMs` | 发布端，非 tether 读者的超时 | `10` / `10` / `100` |
+| `untetheredWindowLimitTimeoutMs` / `untetheredLingerTimeoutMs` / `untetheredRestingTimeoutMs` | 发布端，non-tether 读者的超时；总保护时间 = window-limit + linger，超时后读者被移出流控，publisher 可复用 term buffer | `2000` / `2000` / `100` |
 | `backPressure` | `drop`：被背压的 claim 丢弃并计数；`retry`：自旋直到成功 | `drop` |
 | `driver` | `auto` / `embedded` / `external`（仅发布端） | `auto` |
 | `driverTimeoutMs` | driver 存活超时 | `5000` |
@@ -188,6 +189,7 @@ r.connect(std::move(source), r.exporterAsSink("sink", sink));
 
 ## 相关章节
 
+- [各传输的并发支持](../08-concurrency.md) — 本传输的多进程 / 多线程读写结论
 - [shm_seqlock 传输](shm_seqlock.md) / [shm_cursor 传输](shm_cursor.md) — 无外部依赖的同机共享内存方案
 - [shared_memory_broadcast 传输](shared_memory_broadcast.md)
 - [广播](../01-broadcast.md)
