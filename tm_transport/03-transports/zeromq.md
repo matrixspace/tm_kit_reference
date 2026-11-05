@@ -41,15 +41,32 @@ zeromq://host:port            # TCP 模式
 zeromq://host:port:::identifier   # inproc / ipc 模式（identifier 作为地址）
 ```
 
-`host` 字段有三类取值，决定底层 ZeroMQ 地址的构造方式（`src/zeromq/ZeroMQComponent.cpp:54`）：
+`host` 字段有三类取值，决定底层 ZeroMQ 地址的构造方式（`src/zeromq/ZeroMQComponent.cpp:94`）：
 
 | `host` 取值 | 构造出的 ZeroMQ 地址 | 说明 |
 |---|---|---|
-| `inproc` | `inproc://<identifier>` | 同进程内通信；`identifier` 是通道名（`:52`） |
-| `ipc` | `ipc://<identifier>` | 同机进程间；`identifier` 是 socket 文件路径（`:52`） |
-| 其他 | `tcp://<host>:<port>`（客户端 `connect`，`:54`）<br>`tcp://*:<port>`（服务端 `bind`，`:199`） | 网络模式；`port` 必填 |
+| `inproc` | `inproc://<identifier>` | 同进程内通信；`identifier` 是通道名（`:95`） |
+| `ipc` | `ipc://<identifier>` | 同机进程间；`identifier` 是 socket 文件路径（`:95`） |
+| 其他 | `tcp://<host>:<port>`（客户端 `connect`，`:97`）<br>`tcp://*:<port>`（服务端 `bind`，`:252`） | 网络模式；`port` 必填 |
 
-**没有任何属性块**——ZeroMQ 传输不使用 `envelop`、`ignoreTopic`、`durable` 等属性，写进 `[...]` 不会被读取。
+属性块只识别高水位（HWM）相关属性（`src/zeromq/ZeroMQComponent.cpp` 中的 `parseHwm`）：
+
+| 属性 | 作用对象 | 说明 |
+|---|---|---|
+| `hwm` | publisher 和 subscriber | 通用默认值 |
+| `sndhwm` | publisher（`ZMQ_SNDHWM`） | 覆盖 `hwm` |
+| `rcvhwm` | subscriber（`ZMQ_RCVHWM`） | 覆盖 `hwm` |
+
+- 取值为非负整数，`0` 表示不限制；不设置时沿用 libzmq 默认值 1000
+- 非法值（非数字、负数、超出 `int` 范围）抛出 `std::invalid_argument`
+- socket 按 host/port/identifier 共享，属性只在**首次创建** socket 时生效，之后指向同一 socket 的 locator 不会改变已有设置
+
+```
+zeromq://localhost:12345[hwm=50000]
+zeromq://ipc:0:::/tmp/feed[sndhwm=0,rcvhwm=20000]
+```
+
+其他属性（`envelop`、`ignoreTopic`、`durable` 等）不被读取。
 
 ### 3. 工厂：`ZeroMQImporterExporter<M>`（`ZeroMQImporterExporter.hpp:18`）
 
@@ -85,11 +102,11 @@ public:
 };
 ```
 
-注意 `topic` 参数的类型是 `std::variant<NoTopicSelection, std::string, std::regex>`——**与 RabbitMQ/Redis 的 `std::string` 不同**。它支持三种模式（匹配实现在 `src/zeromq/ZeroMQComponent.cpp:101`、`:106`）：
+注意 `topic` 参数的类型是 `std::variant<NoTopicSelection, std::string, std::regex>`——**与 RabbitMQ/Redis 的 `std::string` 不同**。它支持三种模式（匹配实现在 `src/zeromq/ZeroMQComponent.cpp:141`、`:146`）：
 
 - `NoTopicSelection{}` —— 不过滤，收全部
-- `std::string` —— **精确相等**匹配（`decoded_.topic == std::get<0>(f)`，`:101`），不是前缀匹配
-- `std::regex` —— 正则匹配（`std::regex_match`，`:94`）
+- `std::string` —— **精确相等**匹配（`decoded_.topic == std::get<0>(f)`，`:141`），不是前缀匹配
+- `std::regex` —— 正则匹配（`std::regex_match`，`:146`）
 
 **过滤在客户端进行**，消息仍会全部到达本进程。
 
@@ -164,11 +181,11 @@ ZeroMQ 的 `bind` 在 publisher 侧，subscriber 用 `connect`。如果 subscrib
 
 **4. `std::string` 类型的 topic 是精确匹配，不是前缀匹配**
 
-`createTypedImporter` 传 `std::string` 时用的是 `decoded_.topic == std::get<0>(f)`（`src/zeromq/ZeroMQComponent.cpp:101`）。想匹配一类 topic 必须用 `std::regex`，不能用"前缀字符串"。这与 RabbitMQ（AMQP 通配）和 Redis（glob）的直觉相反，是最容易踩的坑。
+`createTypedImporter` 传 `std::string` 时用的是 `decoded_.topic == std::get<0>(f)`（`src/zeromq/ZeroMQComponent.cpp:141`）。想匹配一类 topic 必须用 `std::regex`，不能用"前缀字符串"。这与 RabbitMQ（AMQP 通配）和 Redis（glob）的直觉相反，是最容易踩的坑。
 
 **5. 慢订阅者会积压，最终可能阻塞 publisher**
 
-ZeroMQ 的 pub socket 有高水位标记（HWM）。订阅者处理不过来时消息在 publisher 侧排队，达到 HWM 后 **publisher 会丢弃消息**（pub/sub 模式的默认行为是丢弃而非阻塞）。对可靠性要求高的场景要改用有 broker 的传输。
+ZeroMQ 的 pub socket 有高水位标记（HWM）。订阅者处理不过来时消息在 publisher 侧排队，达到 HWM 后 **publisher 会丢弃消息**（pub/sub 模式的默认行为是丢弃而非阻塞）。可以通过 locator 的 `hwm`/`sndhwm`/`rcvhwm` 属性调大水位（见上文），但这只是推迟丢弃，不能保证不丢。对可靠性要求高的场景要改用有 broker 的传输。
 
 **6. 不支持 facility**
 

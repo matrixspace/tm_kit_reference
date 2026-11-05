@@ -10,7 +10,7 @@ tm_infra  ──►  tm_basic  ──►  tm_transport
   图与节点       时钟/序列化/事务     进程间通信
 ```
 
-完整参考文档 55 篇、约 17,540 行，就在本仓库里。单篇 3k–14k token，**整包约 38 万 token，不要一次性全读**。
+完整参考文档 55 篇、约 17,557 行，就在本仓库里。单篇 3k–14k token，**整包约 38 万 token，不要一次性全读**。
 
 ## 怎么用这套文档
 
@@ -116,13 +116,13 @@ tm_infra  ──►  tm_basic  ──►  tm_transport
 | `DelaySimulator` | 忽略 | 生效（模拟逻辑耗时） |
 | 结束方式 | `terminationController` 阻塞 main | `finalize()` 返回即结束 |
 
-> **文档校验版本**：2026-11-03 — 54 篇 / 17176 行
+> **文档校验版本**：2026-11-05 — 55 篇 / 17557 行
 >
 > | 库 | commit | 日期 |
 > |---|---|---|
 > | `tm_infra` | `f569d42` | 2026-11-03 |
 > | `tm_basic` | `00b91cc` | 2026-11-03 |
-> | `tm_transport` | `ec70f48` | 2026-11-03 |
+> | `tm_transport` | `990cd78` | 2026-11-05 |
 >
 > 下游若 pin 的 tm_kit 版本与此不同，文档描述的 API 可能已经变了。
 > 核对方法：`python3 tools/stamp_versions.py --check`（需三个库在同一 workspace 下）。
