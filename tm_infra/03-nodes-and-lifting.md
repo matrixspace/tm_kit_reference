@@ -53,15 +53,15 @@ auto action = M::liftPure<InputType>(f);
 
 `RealTimeApp` 中带 `1` 后缀的单输入版本：
 
-- `liftPure1` —— `tm_infra/tm_kit/infra/RealTimeApp.hpp:1274`
-- `liftMaybe1` —— `tm_infra/tm_kit/infra/RealTimeApp.hpp:1290`
-- `enhancedMaybe1` —— `tm_infra/tm_kit/infra/RealTimeApp.hpp:1306`
-- `kleisli1` —— `tm_infra/tm_kit/infra/RealTimeApp.hpp:1322`
-- `liftMulti1` —— `tm_infra/tm_kit/infra/RealTimeApp.hpp:1516`
-- `enhancedMulti1` —— `tm_infra/tm_kit/infra/RealTimeApp.hpp:1532`
-- `kleisliMulti1` —— `tm_infra/tm_kit/infra/RealTimeApp.hpp:1548`
+- `liftPure1` —— `tm_infra/tm_kit/infra/RealTimeApp.hpp:1196`
+- `liftMaybe1` —— `tm_infra/tm_kit/infra/RealTimeApp.hpp:1212`
+- `enhancedMaybe1` —— `tm_infra/tm_kit/infra/RealTimeApp.hpp:1228`
+- `kleisli1` —— `tm_infra/tm_kit/infra/RealTimeApp.hpp:1244`
+- `liftMulti1` —— `tm_infra/tm_kit/infra/RealTimeApp.hpp:1406`
+- `enhancedMulti1` —— `tm_infra/tm_kit/infra/RealTimeApp.hpp:1422`
+- `kleisliMulti1` —— `tm_infra/tm_kit/infra/RealTimeApp.hpp:1438`
 
-实际签名（以 `liftPure1` 为例，`RealTimeApp.hpp:1274`）：
+实际签名（以 `liftPure1` 为例，`RealTimeApp.hpp:1196`）：
 
 ```cpp
 template <class A, class F>
@@ -88,7 +88,7 @@ static auto liftPure1(F &&f, LiftParameters<TimePoint> const &liftParam = LiftPa
 - 无后缀 `kleisliMulti` —— `tm_infra/tm_kit/infra/RealTimeApp_KleisliMultiN_Piece.hpp:668`
 
 `BasicWithTimeApp` 的对应入口集中在 `tm_infra/tm_kit/infra/BasicWithTimeApp.hpp:115-145`，
-`SinglePassIterationApp` 在 `tm_infra/tm_kit/infra/SinglePassIterationApp.hpp:1202-1217` 与 `1336-1346`。
+`SinglePassIterationApp` 在 `tm_infra/tm_kit/infra/SinglePassIterationApp.hpp:1203-1218` 与 `1336-1346`。
 
 **无后缀版本等价于 1 元版本**，日常代码几乎只用无后缀形式；多输入才写 `liftMaybe2` 这类。
 
@@ -116,7 +116,7 @@ struct LiftParameters {
 
 | 字段 | 生效模式 | 语义 |
 |---|---|---|
-| `suggestThreaded` | 仅实时模式 | 该节点逻辑在自己的线程里执行 |
+| `suggestThreaded` | 仅实时模式 | 基于 handler 的节点使用 Environment 执行器，默认专用线程；同步节点用 Inline |
 | `delaySimulator` | 仅单遍迭代模式 | 为该节点人为增加延迟，模拟"逻辑耗时" |
 | `fireOnceOnly` | 两种模式 | 节点产出第一个输出后即停止；**只对 action 有效，对 facility 无效** |
 
@@ -131,16 +131,16 @@ struct LiftParameters {
 
 | 函数 | 行号 | 说明 |
 |---|---|---|
-| `vacuousImporter<T>()` | `RealTimeApp.hpp:2282` | 永不产出数据，占位用 |
-| `simpleImporter<T>(f, liftParam)` | `RealTimeApp.hpp:2291` | `f` 收到 `PublisherCall<T> &`，自行决定推送几次、何时返回 |
-| `uniformSimpleImporter<T>(f, liftParam)` | `RealTimeApp.hpp:2344` | `f` 形如 `std::tuple<bool, M::Data<T>>(Env *)`，被循环调用，`bool` 为"是否还有下一个" |
-| `constFirstPushImporter<T>(t)` | `RealTimeApp.hpp:2348` | 启动时推一个常量 |
-| `constFirstPushKeyImporter<T>(t)` | `RealTimeApp.hpp:2355` | 同上但自动 `keyify`，产出 `Key<T>` |
-| `constTriggerImporter<T,HasOwnThread>(t)` | `RealTimeApp.hpp:2361` | 返回 `tuple<importer, std::function<void()>>` |
-| `triggerImporter<T,HasOwnThread>()` | `RealTimeApp.hpp:2454` | 返回 `tuple<importer, std::function<void(T&&)>>` |
-| `triggerImporterWithTime<T,HasOwnThread>()` | `RealTimeApp.hpp:2550` | 同上，触发函数接受 `WithTime<T,TimePoint>&&`，可指定时间戳 |
-| `bunchedImporter<T,NotUsed>(underlying, notUsed)` | `RealTimeApp.hpp:2659` | 包装另一个 importer，把多个 `T` 攒成 `std::vector<T>` |
-| `importer<T>(AbstractImporter<T> *)` | `RealTimeApp.hpp:2278` | 从手写的 `AbstractImporter` 子类构造 |
+| `vacuousImporter<T>()` | `RealTimeApp.hpp:2149` | 永不产出数据，占位用 |
+| `simpleImporter<T>(f, liftParam)` | `RealTimeApp.hpp:2158` | `f` 收到 `PublisherCall<T> &`，自行决定推送几次、何时返回 |
+| `uniformSimpleImporter<T>(f, liftParam)` | `RealTimeApp.hpp:2211` | `f` 形如 `std::tuple<bool, M::Data<T>>(Env *)`，被循环调用，`bool` 为"是否还有下一个" |
+| `constFirstPushImporter<T>(t)` | `RealTimeApp.hpp:2215` | 启动时推一个常量 |
+| `constFirstPushKeyImporter<T>(t)` | `RealTimeApp.hpp:2222` | 同上但自动 `keyify`，产出 `Key<T>` |
+| `constTriggerImporter<T,HasOwnThread>(t)` | `RealTimeApp.hpp:2228` | 返回 `tuple<importer, std::function<void()>>` |
+| `triggerImporter<T,HasOwnThread>()` | `RealTimeApp.hpp:2321` | 返回 `tuple<importer, std::function<void(T&&)>>` |
+| `triggerImporterWithTime<T,HasOwnThread>()` | `RealTimeApp.hpp:2417` | 同上，触发函数接受 `WithTime<T,TimePoint>&&`，可指定时间戳 |
+| `bunchedImporter<T,NotUsed>(underlying, notUsed)` | `RealTimeApp.hpp:2526` | 包装另一个 importer，把多个 `T` 攒成 `std::vector<T>` |
+| `importer<T>(AbstractImporter<T> *)` | `RealTimeApp.hpp:2145` | 从手写的 `AbstractImporter` 子类构造 |
 
 `TopDownSinglePassIterationApp` 的对应入口在
 `tm_infra/tm_kit/infra/TopDownSinglePassIterationApp.hpp:1729`（`importer`）、`1733`（`vacuousImporter`）、
@@ -162,16 +162,16 @@ configureFeedFunc = std::get<1>(configureImporterAndFunc);
 `configureFeedFunc` 随后在 FLTK 按钮回调里被调用，数据即进入图中。
 
 注意 `bunchedImporter` 的第二个参数在实时模式下签名为 `NotUsed &&`（默认 `std::monostate`，
-`RealTimeApp.hpp:2659`），而在单遍迭代模式下是 `BunchSplitLogic &&`
+`RealTimeApp.hpp:2526`），而在单遍迭代模式下是 `BunchSplitLogic &&`
 （`TopDownSinglePassIterationApp.hpp:2042`）——实时模式按"当前攒到的全量"切分，不需要逻辑。
 
 ### exporter 族
 
 | 函数 | 行号 | 说明 |
 |---|---|---|
-| `simpleExporter<T>(f, liftParam)` | `RealTimeApp.hpp:2735` | `f` 收到完整的 `InnerData<T> &&`（含时间戳与环境指针） |
-| `pureExporter<T>(f, liftParam)` | `RealTimeApp.hpp:2743` | `f` 只收到 `T &&`，内部包装成 `simpleExporter` |
-| `trivialExporter<T>()` | `RealTimeApp.hpp:2756` | 丢弃一切输入；用于满足"输出必须被消费"的图校验 |
+| `simpleExporter<T>(f, liftParam)` | `RealTimeApp.hpp:2598` | `f` 收到完整的 `InnerData<T> &&`（含时间戳与环境指针） |
+| `pureExporter<T>(f, liftParam)` | `RealTimeApp.hpp:2606` | `f` 只收到 `T &&`，内部包装成 `simpleExporter` |
+| `trivialExporter<T>()` | `RealTimeApp.hpp:2619` | 丢弃一切输入；用于满足"输出必须被消费"的图校验 |
 
 单遍迭代模式对应 `TopDownSinglePassIterationApp.hpp:2227` / `2231` / `2244`。
 
@@ -179,15 +179,15 @@ configureFeedFunc = std::get<1>(configureImporterAndFunc);
 
 | 函数 | 行号 | 说明 |
 |---|---|---|
-| `compose(Action<A,B>&&, Action<B,C>&&)` | `RealTimeApp.hpp:2220` | 两个 action 串成一个 |
-| `composeImporter(Importer<T1>&&, Action<T1,T2>&&)` | `RealTimeApp.hpp:2762` | importer 接一个 action，结果仍是 importer |
-| `composeExporter(Action<T1,T2>&&, Exporter<T2>&&)` | `RealTimeApp.hpp:2796` | action 接一个 exporter，结果仍是 exporter |
-| `delayedImporter<T1,T2>(Importer<T2>&&)` | `RealTimeApp.hpp:2822` | 变成 `Action<T1,T2>`：收到第一个 `T1` 才启动内部 importer |
-| `lazyImporter<T1,T2>(factory)` | `RealTimeApp.hpp:2857` | `Action<T1,T2>`：用收到的 `T1` 现场造 importer |
-| `curtailedAction<T1,T2>(Action<T1,T2>&&)` | `RealTimeApp.hpp:2891` | 砍掉 action 的输出，变成 `Exporter<T1>` |
-| `passThroughAction<T>()` | `RealTimeApp.hpp:1697` | 恒等 action；`T` 不能是 variant 或 `std::any`（`RealTimeApp.hpp:1586-1588` 的 `enable_if`） |
-| `dispatchTupleAction<Ts...>()` | `RealTimeApp.hpp:1732` | `Action<std::tuple<Ts...>, std::variant<Ts...>>`：把 tuple 拆成逐个 variant 输出 |
-| `continuationAction<A,B,ContinuationStructure>(cont, state, liftParam)` | `RealTimeApp.hpp:1648` | 由 `TimedAppModelContinuation` 驱动的带状态 action |
+| `compose(Action<A,B>&&, Action<B,C>&&)` | `RealTimeApp.hpp:2087` | 两个 action 串成一个 |
+| `composeImporter(Importer<T1>&&, Action<T1,T2>&&)` | `RealTimeApp.hpp:2625` | importer 接一个 action，结果仍是 importer |
+| `composeExporter(Action<T1,T2>&&, Exporter<T2>&&)` | `RealTimeApp.hpp:2659` | action 接一个 exporter，结果仍是 exporter |
+| `delayedImporter<T1,T2>(Importer<T2>&&)` | `RealTimeApp.hpp:2685` | 变成 `Action<T1,T2>`：收到第一个 `T1` 才启动内部 importer |
+| `lazyImporter<T1,T2>(factory)` | `RealTimeApp.hpp:2720` | `Action<T1,T2>`：用收到的 `T1` 现场造 importer |
+| `curtailedAction<T1,T2>(Action<T1,T2>&&)` | `RealTimeApp.hpp:2754` | 砍掉 action 的输出，变成 `Exporter<T1>` |
+| `passThroughAction<T>()` | `RealTimeApp.hpp:1582` | 恒等 action；`T` 不能是 variant 或 `std::any`（`RealTimeApp.hpp:1480-1482` 的 `enable_if`） |
+| `dispatchTupleAction<Ts...>()` | `RealTimeApp.hpp:1617` | `Action<std::tuple<Ts...>, std::variant<Ts...>>`：把 tuple 拆成逐个 variant 输出 |
+| `continuationAction<A,B,ContinuationStructure>(cont, state, liftParam)` | `RealTimeApp.hpp:1533` | 由 `TimedAppModelContinuation` 驱动的带状态 action |
 
 `delayedImporter` / `lazyImporter` / `curtailedAction` 在单遍迭代模式下分别位于
 `TopDownSinglePassIterationApp.hpp:2333` / `2365` / `2401`。
@@ -398,8 +398,8 @@ auto lineImporter = M::simpleImporter<std::string>(
 );
 ```
 
-`linenoise` 是阻塞调用，所以必须 `SuggestThreaded(true)`，否则会卡住整个 app 的启动流程。
-`PublisherCall<T>`（`RealTimeApp.hpp:2239`）在函数体内可多次调用，每次推送一个数据。
+`linenoise` 是阻塞调用，所以必须 `SuggestThreaded(true)`，否则会卡住整个 app 的启动流程。该 `simpleImporter` 自建线程，不经过 handler 的 Environment 执行器扩展点。
+`PublisherCall<T>`（`RealTimeApp.hpp:2106`）在函数体内可多次调用，每次推送一个数据。
 
 ### uniformSimpleImporter 风格（GenericLift 自动识别）
 
@@ -446,7 +446,7 @@ r.registerExporter("statusHandler", statusHandler);
 
 | 维度 | RealTimeApp | TopDownSinglePassIterationApp |
 |---|---|---|
-| `SuggestThreaded` | 生效：节点独占线程，上游 publish 后立即返回 | **完全忽略**（源码中无引用） |
+| `SuggestThreaded` | 生效：基于 handler 的节点选择 Environment 执行器；默认异步专用线程 | **完全忽略**（源码中无引用） |
 | `DelaySimulator` | **完全忽略**（源码中无引用） | 生效：输出时间戳被推后，用于模拟逻辑耗时 |
 | `FireOnceOnly` | 生效 | 生效 |
 | 节点执行时机 | 挂钟时间驱动，各线程并发 | 数据驱动，单线程按时间序推进 |
@@ -474,8 +474,8 @@ r.registerExporter("statusHandler", statusHandler);
 - **enhanced 变体不能控制输出时间戳**，只是多收到一个输入时间戳。需要改输出时间或产出多个不同时间的
   数据，必须用 kleisli / kleisliMulti。
 - **实时模式下不加 `SuggestThreaded` 的阻塞逻辑会拖住上游。** 节点默认在上游线程里同步执行。
-  凡涉及 IO、锁、第三方阻塞 API，都应显式 `SuggestThreaded(true)`。
-- **`passThroughAction<T>` 不接受 variant 与 `std::any`**（`RealTimeApp.hpp:1586-1588` 的 `enable_if`
+  凡涉及 IO、锁、第三方阻塞 API，应显式 `SuggestThreaded(true)` 并核对执行器：默认 Dedicated 可隔离调用线程；共享池中阻塞会占住池线程，显式选 Inline 则仍会阻塞调用者。
+- **`passThroughAction<T>` 不接受 variant 与 `std::any`**（`RealTimeApp.hpp:1480-1482` 的 `enable_if`
   约束），多输入场合不能用它做恒等透传。
 - **lift 只是创建节点，不等于加入图。** 还必须 `r.registerAction(...)` / `r.execute(...)`，
   或用 `DeclarativeGraph` 一步完成。未注册的节点在 `r.finalize()` 时不会被启动。
@@ -502,4 +502,5 @@ r.registerExporter("statusHandler", statusHandler);
 - [07-time-and-data.md](07-time-and-data.md) —— `InnerData` / `WithTime` / `Data` / final 标记
 - [08-runners-and-control.md](08-runners-and-control.md) —— 终止控制与多 runner
 - [09-generated-pieces.md](09-generated-pieces.md) —— `*_Piece.hpp` 中 N 元版本的生成机制
+- [10-realtime-executors.md](10-realtime-executors.md) —— handler 策略与 `SuggestThreaded` 的执行器边界
 - [../GLOSSARY.md](../GLOSSARY.md) —— 术语表

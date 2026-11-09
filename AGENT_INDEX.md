@@ -10,7 +10,7 @@ tm_infra  ──►  tm_basic  ──►  tm_transport
   图与节点       时钟/序列化/事务     进程间通信
 ```
 
-完整参考文档 55 篇、约 17,557 行，就在本仓库里。单篇 3k–14k token，**整包约 38 万 token，不要一次性全读**。
+完整参考文档 56 篇、约 17,815 行，就在本仓库里。单篇 3k–14k token，**整包约 38 万 token，不要一次性全读**。
 
 ## 怎么用这套文档
 
@@ -19,7 +19,7 @@ tm_infra  ──►  tm_basic  ──►  tm_transport
 | 层 | 内容 | 什么时候用 |
 |---|---|---|
 | **常驻** | 就是本文件 | 每次会话自动加载。铁律 + 路由表足够覆盖大部分情况 |
-| **单篇** | 55 篇文档文件 | 要写某类代码时，按下面的路由表或关键词索引定位，然后整篇 Read |
+| **单篇** | 56 篇文档文件 | 要写某类代码时，按下面的路由表或关键词索引定位，然后整篇 Read |
 | **检索** | `tools/tm_docs` | 路由表里找不到时用它搜；比盲 grep 准 |
 
 ```bash
@@ -66,7 +66,7 @@ tm_infra  ──►  tm_basic  ──►  tm_transport
 
 11. **实时/回测的时间来源必须一致地走环境。** 业务代码里直接调 `std::chrono::system_clock::now()` 会让回测结果依赖运行时刻，彻底破坏可重放性。用 `env->now()` / `env->resolveTime()`。
 
-12. **`CheckTimeComponent<false>` 不会关掉版本检查。** 时间倒流检查与 `VersionChecker` 是两套独立机制，后者无条件生效，会把版本不前进的数据静默丢弃。
+12. **时间检查默认关闭，版本检查始终有效。** `CheckTimeComponent<>` 和缺少 `CheckTime` 成员都按 false 处理；实时与回测要拒绝时间倒退须显式选 `<true>`。`CheckTimeComponent<false>` 不会关掉版本检查。 时间倒流检查与 `VersionChecker` 是两套独立机制，后者无条件生效，会把版本不前进的数据静默丢弃。
 
 ## 按任务查
 
@@ -77,6 +77,7 @@ tm_infra  ──►  tm_basic  ──►  tm_transport
 | 写第一个程序 / 搭实时+回测双模骨架 | `QUICK_START.md` |
 | 排查"为什么会这样" / 跨模块坑 | `PATTERNS.md` |
 | 选 App 类型（实时 vs 回测） | `tm_infra/01-app-types.md` |
+| 替换实时执行器 / 共享线程池 / Moodycamel | `tm_infra/10-realtime-executors.md` |
 | 写节点：liftPure / liftMaybe / kleisli | `tm_infra/03-nodes-and-lifting.md` |
 | 请求-响应：facility 四变体 | `tm_infra/04-facilities.md` |
 | 组图：register / connect / finalize | `tm_infra/05-app-runner.md` |
@@ -109,20 +110,20 @@ tm_infra  ──►  tm_basic  ──►  tm_transport
 |---|---|---|
 | 时钟组件 | `basic::real_time_clock::ClockComponent` | `basic::(top_down_)single_pass_iteration_clock::ClockComponent` |
 | 时间戳来源 | 挂钟 `now()`，与输入无关 | 触发它的输入的时间戳，并推进全局时钟 |
-| `CheckTimeComponent` | `<false>`（网络乱序是常态） | `<true>`（数据应严格有序） |
+| `CheckTimeComponent`（示例配置；缺省均关闭） | `<false>`（网络乱序是常态） | 显式 `<true>`（需要检查时） |
 | 退出控制 | `TrivialExitControlComponent` | `FlagExitControlComponent` |
 | ID 生成 | `transport::BoostUUIDComponent`（跨进程唯一） | `basic::IntIDComponent<>`（可复现） |
 | `SuggestThreaded` | 生效 | 忽略 |
 | `DelaySimulator` | 忽略 | 生效（模拟逻辑耗时） |
 | 结束方式 | `terminationController` 阻塞 main | `finalize()` 返回即结束 |
 
-> **文档校验版本**：2026-11-05 — 55 篇 / 17557 行
+> **文档校验版本**：2026-11-09 — 56 篇 / 17815 行
 >
 > | 库 | commit | 日期 |
 > |---|---|---|
-> | `tm_infra` | `f569d42` | 2026-11-03 |
-> | `tm_basic` | `00b91cc` | 2026-11-03 |
-> | `tm_transport` | `990cd78` | 2026-11-05 |
+> | `tm_infra` | `e14b5c4` | 2026-11-09 |
+> | `tm_basic` | `d0b9f9f` | 2026-11-09 |
+> | `tm_transport` | `e22df3c` | 2026-11-09 |
 >
 > 下游若 pin 的 tm_kit 版本与此不同，文档描述的 API 可能已经变了。
 > 核对方法：`python3 tools/stamp_versions.py --check`（需三个库在同一 workspace 下）。
@@ -141,6 +142,7 @@ tm_infra  ──►  tm_basic  ──►  tm_transport
 | [`tm_infra/07-time-and-data.md`](tm_infra/07-time-and-data.md) | 时间与数据包装类型 |
 | [`tm_infra/08-runners-and-control.md`](tm_infra/08-runners-and-control.md) | SynchronousRunner、TerminationController 与运行控制 |
 | [`tm_infra/09-generated-pieces.md`](tm_infra/09-generated-pieces.md) | 机器生成的代码片段与数字后缀约定 |
+| [`tm_infra/10-realtime-executors.md`](tm_infra/10-realtime-executors.md) | 实时 handler 与可替换执行器 |
 | [`tm_basic/00-overview.md`](tm_basic/00-overview.md) | tm_basic 概览 |
 | [`tm_basic/01-clocks.md`](tm_basic/01-clocks.md) | 时钟组件 |
 | [`tm_basic/02-struct-field-info.md`](tm_basic/02-struct-field-info.md) | 序列化宏与结构反射 |

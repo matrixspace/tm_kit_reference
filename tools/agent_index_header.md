@@ -63,7 +63,7 @@ tm_infra  ──►  tm_basic  ──►  tm_transport
 
 11. **实时/回测的时间来源必须一致地走环境。** 业务代码里直接调 `std::chrono::system_clock::now()` 会让回测结果依赖运行时刻，彻底破坏可重放性。用 `env->now()` / `env->resolveTime()`。
 
-12. **`CheckTimeComponent<false>` 不会关掉版本检查。** 时间倒流检查与 `VersionChecker` 是两套独立机制，后者无条件生效，会把版本不前进的数据静默丢弃。
+12. **时间检查默认关闭，版本检查始终有效。** `CheckTimeComponent<>` 和缺少 `CheckTime` 成员都按 false 处理；实时与回测要拒绝时间倒退须显式选 `<true>`。`CheckTimeComponent<false>` 不会关掉版本检查。 时间倒流检查与 `VersionChecker` 是两套独立机制，后者无条件生效，会把版本不前进的数据静默丢弃。
 
 ## 按任务查
 
@@ -74,6 +74,7 @@ tm_infra  ──►  tm_basic  ──►  tm_transport
 | 写第一个程序 / 搭实时+回测双模骨架 | `QUICK_START.md` |
 | 排查"为什么会这样" / 跨模块坑 | `PATTERNS.md` |
 | 选 App 类型（实时 vs 回测） | `tm_infra/01-app-types.md` |
+| 替换实时执行器 / 共享线程池 / Moodycamel | `tm_infra/10-realtime-executors.md` |
 | 写节点：liftPure / liftMaybe / kleisli | `tm_infra/03-nodes-and-lifting.md` |
 | 请求-响应：facility 四变体 | `tm_infra/04-facilities.md` |
 | 组图：register / connect / finalize | `tm_infra/05-app-runner.md` |
@@ -106,7 +107,7 @@ tm_infra  ──►  tm_basic  ──►  tm_transport
 |---|---|---|
 | 时钟组件 | `basic::real_time_clock::ClockComponent` | `basic::(top_down_)single_pass_iteration_clock::ClockComponent` |
 | 时间戳来源 | 挂钟 `now()`，与输入无关 | 触发它的输入的时间戳，并推进全局时钟 |
-| `CheckTimeComponent` | `<false>`（网络乱序是常态） | `<true>`（数据应严格有序） |
+| `CheckTimeComponent`（示例配置；缺省均关闭） | `<false>`（网络乱序是常态） | 显式 `<true>`（需要检查时） |
 | 退出控制 | `TrivialExitControlComponent` | `FlagExitControlComponent` |
 | ID 生成 | `transport::BoostUUIDComponent`（跨进程唯一） | `basic::IntIDComponent<>`（可复现） |
 | `SuggestThreaded` | 生效 | 忽略 |

@@ -2,7 +2,7 @@
 title: 时间与数据包装类型
 library: tm_infra
 headers: [tm_kit/infra/WithTimeData.hpp, tm_kit/infra/ChronoUtils.hpp, tm_kit/infra/VersionedData.hpp, tm_kit/infra/TupleVariantHelper.hpp]
-keywords: [WithTime, TimedDataWithEnvironment, TimedAppData, TimedAppModelKleisli, TimedAppMultiData, TimedAppModelContinuation, Key, KeyedData, IsKey, IsKeyedData, VersionChecker, VersionedData, GroupedVersionedData, finalFlag, final flag, ChronoUtils, 时区, zoned_time, C++20, 时间戳, withtime_utils, parseLocalTodayActualTime, keyify, resolveTime, TimeChecker, CheckTimeComponent, LockFreeTimeCheckerComponent, MultiThreadedTimeChecker, TimeCheckerMode, VersionCheckerIsTrivial, 无锁, 时间倒流, TupleVariantHelper]
+keywords: [WithTime, TimedDataWithEnvironment, TimedAppData, TimedAppModelKleisli, TimedAppMultiData, TimedAppModelContinuation, Key, KeyedData, IsKey, IsKeyedData, VersionChecker, VersionedData, GroupedVersionedData, finalFlag, final flag, ChronoUtils, 时区, zoned_time, C++20, 时间戳, withtime_utils, parseLocalTodayActualTime, keyify, resolveTime, TimeChecker, CheckTimeComponent, CheckTimeEnabled, LockFreeTimeCheckerComponent, MultiThreadedTimeChecker, TimeCheckerMode, VersionCheckerIsTrivial, 无锁, 时间倒流, TupleVariantHelper]
 ---
 
 # 时间与数据包装类型
@@ -426,27 +426,29 @@ x.environment->log(infra::LogLevel::Info, infra::withtime_utils::localTimeString
 
 ### 时间倒流检查：TimeChecker 与 CheckTimeComponent
 
-`CheckTimeComponent<DoCheck>`（`tm_infra/tm_kit/infra/Environments.hpp:42`）只做一件事：暴露 `static constexpr bool CheckTime = DoCheck;`（`:43`）。各 App 的 `TimeChecker` 读这个常量决定是否丢弃时间倒退的数据。
+`CheckTimeComponent<DoCheck = false>`（`tm_infra/tm_kit/infra/Environments.hpp:43`）暴露 `static constexpr bool CheckTime = DoCheck;`。各 App 的 `TimeChecker` 统一读 `CheckTimeEnabled<StateT>::value`（同一文件 `:47`）：缺少 `StateT::CheckTime` 时为 false，存在时才读取该值。
+
+RealTime、SinglePass、TopDownSinglePass 都默认关闭时间检查，包括 variant 特化；`CheckTimeComponent<>` 也等价于 `<false>`。需要拒绝时间倒退时显式选 `<true>`，不能把历史示例的回测配置误认为默认值。此规则不改变时间戳生成、回测任务排序、final 标记或版本检查。
 
 `RealTimeApp` 的 `TimeChecker` 有两个版本，由 `MutexProtected` 模板参数选择：
 
 ```cpp
-// tm_infra/tm_kit/infra/RealTimeApp.hpp:60-63
+// tm_infra/tm_kit/infra/RealTimeApp.hpp:61-64
 template <bool MutexProtected, class T>
 class TimeChecker {};
 template <class T>
-class TimeChecker<false, T> { /* :63 起，成员 bool hasData_ */ };
+class TimeChecker<false, T> { /* :64 起，成员 bool hasData_ */ };
 ```
 
-非保护版（`RealTimeApp.hpp:63`–`:86`）的检查体：
+非保护版（`RealTimeApp.hpp:64`–`:87`）的检查体：
 
 ```cpp
-// tm_infra/tm_kit/infra/RealTimeApp.hpp:70-81
+// tm_infra/tm_kit/infra/RealTimeApp.hpp:71-82
 inline bool operator()(TimedDataWithEnvironment<T, StateT, typename StateT::TimePointType> const &data) {
     if (!versionChecker_.checkVersion(data.timedData.value)) {
         return false;
     }
-    if (StateT::CheckTime) {
+    if (CheckTimeEnabled<StateT>::value) {
         if (hasData_ && data.timedData.timePoint < lastTime_) {
             return false;
         }
@@ -457,15 +459,15 @@ inline bool operator()(TimedDataWithEnvironment<T, StateT, typename StateT::Time
 }
 ```
 
-保护版 `TimeChecker<true, T>`（`RealTimeApp.hpp:217`）现在只是 `MultiThreadedTimeChecker<T>` 的薄包装，后者按 `TimeCheckerModeFor<T>::value`（`:120`）在三种实现间编译期选择（枚举 `TimeCheckerMode`，`:113`）：
+保护版 `TimeChecker<true, T>`（`RealTimeApp.hpp:218`）现在只是 `MultiThreadedTimeChecker<T>` 的薄包装，后者按 `TimeCheckerModeFor<T>::value`（`:121`）在三种实现间编译期选择（枚举 `TimeCheckerMode`，`:114`）：
 
 | 模式 | 选中条件 | 实现 |
 |---|---|---|
-| `Mutex`（`:190`） | **默认**；或输入类型有状态化的 `VersionChecker`（如 `VersionedData`）；或时间点类型无法无锁原子化 | 与旧版完全相同：`std::atomic<bool> hasData_` + `std::mutex`，`operator()` 开头加锁（`:199`） |
-| `Trivial`（`:145`） | 环境含 `LockFreeTimeCheckerComponent` 且 `VersionCheckerIsTrivial<T>` 且 `CheckTime == false` | 无锁；稳态下每次输入只做一次 relaxed load |
-| `AtomicCAS`（`:162`） | 同上但 `CheckTime == true`，且 `TimePointType` 可平凡拷贝、有最小值（`LowestTimePoint`，`:90`）、`std::atomic<TimePointType>::is_always_lock_free` | 对 `std::atomic<TimePointType> lastTime_` 做 CAS 循环，接受规则与 mutex 版相同；并发输入按 CAS 顺序串行化 |
+| `Mutex`（`:191`） | **默认**；或输入类型有状态化的 `VersionChecker`（如 `VersionedData`）；或时间点类型无法无锁原子化 | 与旧版完全相同：`std::atomic<bool> hasData_` + `std::mutex`，`operator()` 开头加锁（`:200`） |
+| `Trivial`（`:146`） | 环境含 `LockFreeTimeCheckerComponent` 且 `VersionCheckerIsTrivial<T>` 且 `CheckTime == false` | 无锁；稳态下每次输入只做一次 relaxed load |
+| `AtomicCAS`（`:163`） | 同上但 `CheckTime == true`，且 `TimePointType` 可平凡拷贝、有最小值（`LowestTimePoint`，`:91`）、`std::atomic<TimePointType>::is_always_lock_free` | 对 `std::atomic<TimePointType> lastTime_` 做 CAS 循环，接受规则与 mutex 版相同；并发输入按 CAS 顺序串行化 |
 
-开关是 `infra::LockFreeTimeCheckerComponent`（`tm_infra/tm_kit/infra/Environments.hpp:57`），一个空结构体，放进 Environment 即启用；只影响实时模式。`VersionCheckerIsTrivial<T>`（`tm_infra/tm_kit/infra/VersionedData.hpp:82`）通过主模板 `VersionChecker<T>` 上的 `IsTrivialVersionChecker` 标记（`VersionedData.hpp:74`）识别无状态检查器，特化版本没有这个标记，因此自动回落到 `Mutex`。
+开关是 `infra::LockFreeTimeCheckerComponent`（`tm_infra/tm_kit/infra/Environments.hpp:65`），一个空结构体，放进 Environment 即启用；只影响实时模式。`VersionCheckerIsTrivial<T>`（`tm_infra/tm_kit/infra/VersionedData.hpp:82`）通过主模板 `VersionChecker<T>` 上的 `IsTrivialVersionChecker` 标记（`VersionedData.hpp:74`）识别无状态检查器，特化版本没有这个标记，因此自动回落到 `Mutex`。
 
 ```cpp
 // 来源：tm_transport/test/ipc_latency_profiler/IpcLatencyProfiler.cpp:48（已截取，示例代码库 tm_examples 中暂无用例）
@@ -480,11 +482,11 @@ using ProfilerEnvironment = infra::Environment<
 
 代价（源码注释原意）：放弃的是锁在**并发调用者之间**提供的 happens-before 关系；节点自身的处理代码本来就不在这把锁的保护范围内。如果你的节点逻辑隐式依赖"多个输入线程经过同一把锁"来同步共享状态，不要开启它。
 
-**用保护版还是非保护版取决于该节点的输入是否可能被多个线程并发推送**；单线程处理器用非保护版省掉锁开销（例如 `ThreadedHandlerBase` 内部用的是 `TimeChecker<false, T>`，`RealTimeApp.hpp:227`）。
+**用保护版还是非保护版取决于该节点的输入是否可能被多个线程并发推送**；单线程处理器用非保护版省掉锁开销（当前 `ExecHandlerCore` 使用 `TimeChecker<!Exec::kSerialCallbacks,T>`，`RealTimeApp.hpp:288`。Dedicated / SharedPool / Moodycamel 的单节点回调串行，用非保护版；Inline 可被多个上游线程并发调用，用保护版）。
 
 `TopDownSinglePassIterationApp` 只有一个版本（`tm_infra/tm_kit/infra/TopDownSinglePassIterationApp.hpp:158`），逻辑与 `RealTimeApp` 的非保护版一字不差——因为单遍迭代是单线程，不需要锁。
 
-两处都先查版本再查时间：**版本检查无条件执行，时间检查受 `StateT::CheckTime` 门控**。所以即使 `CheckTimeComponent<false>`，`VersionChecker` 依然生效。
+两处都先查版本再查时间：**版本检查无条件执行，时间检查受 `CheckTimeEnabled<StateT>::value` 门控**。所以即使 `CheckTimeComponent<false>`，`VersionChecker` 依然生效。
 
 variant 输入的 `TimeChecker` 由生成文件提供（`tm_infra/tm_kit/infra/RealTimeApp_TimeChecker_Piece.hpp:1` 起、`TopDownSinglePassIterationApp_TimeChecker_Piece.hpp`），**每个分支各记一份 `tp` 和 `versionChecker`**，并用 `std::bitset<N> finalMask_` 分别记录各分支的 final 标记（`RealTimeApp_TimeChecker_Piece.hpp:3`–`:6`、`:24`）——多输入节点要等所有分支都 final 才算整体 final。
 
@@ -494,7 +496,7 @@ variant 输入的 `TimeChecker` 由生成文件提供（`tm_infra/tm_kit/infra/R
 |---|---|---|
 | 时间戳来源 | 挂钟 `now()`，与输入时间无关 | 触发输入的时间戳，同时推进全局时钟 |
 | 典型 `CheckTimeComponent` | `<false>`（`MainLogic.cpp:41`） | `<true>`（`MainLogic.cpp:192`） |
-| 时间倒流的数据 | 一般不检查（`CheckTime=false`），直接放过 | 检查并丢弃 |
+| 时间倒流的数据 | 默认放过；显式 `CheckTime=true` 时丢弃 | 默认放过；显式 `CheckTime=true` 时丢弃 |
 | `TimeChecker` 版本 | `<false,T>` 与 `<true,T>` 两套，按并发需要选；`<true,T>` 可经 `LockFreeTimeCheckerComponent` 改为无锁 | 单一版本，无锁 |
 | `VersionChecker` | 生效 | 生效 |
 | `finalFlag` | 用于摘掉 facility 的请求回调 | 决定下游何时停止拉取，**漏发则永不结束** |
@@ -520,7 +522,7 @@ using TheEnvironment = infra::Environment<
 >;
 ```
 
-实时模式关掉时间检查是有道理的：挂钟时间下多线程并发产生的时间戳本来就可能微小倒置，一检查就会无谓丢数据。回测模式必须打开：数据按时间顺序喂进来，倒流说明业务逻辑或输入文件有问题。
+实时模式关掉时间检查是有道理的：挂钟时间下多线程并发产生的时间戳本来就可能微小倒置，一检查就会无谓丢数据。回测若要检查输入是否按时间顺序喂入，应显式打开；当前缺省关闭，不会自动发现倒流。
 
 ## 易错点
 
@@ -557,5 +559,6 @@ using TheEnvironment = infra::Environment<
 - [05-app-runner.md](05-app-runner.md) —— `ActionTypeInfo` 等萃取在注册 API 中的作用
 - [08-runners-and-control.md](08-runners-and-control.md) —— `terminationController` 与时间相关的终止策略
 - [09-generated-pieces.md](09-generated-pieces.md) —— `*_TimeChecker_Piece.hpp` 等生成文件
+- [10-realtime-executors.md](10-realtime-executors.md) —— callback 串行性、执行器 FIFO 与检查器选择
 - [../tm_basic/01-clocks.md](../tm_basic/01-clocks.md) —— 时钟组件、虚拟时间、`actualTime`
 - [../GLOSSARY.md](../GLOSSARY.md) —— 术语表

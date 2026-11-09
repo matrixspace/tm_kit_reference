@@ -77,6 +77,7 @@
 | `LockFreeInBoostSharedMemoryChain.hpp` | [tm_transport/04-shared-chains.md](tm_transport/04-shared-chains.md) |
 | `LogLevel.hpp` | [tm_infra/08-runners-and-control.md](tm_infra/08-runners-and-control.md) |
 | `LoggingComponentBase.hpp` | [tm_basic/04-logging.md](tm_basic/04-logging.md) |
+| `MoodycamelThreadedExecutor.hpp` | [tm_infra/10-realtime-executors.md](tm_infra/10-realtime-executors.md) |
 | `MultiAppRunnerUtils.hpp` | [tm_basic/10-app-runner-utils.md](tm_basic/10-app-runner-utils.md) |
 | `MultiTransportBroadcastListener.hpp` | [tm_transport/00-overview.md](tm_transport/00-overview.md)、[tm_transport/01-broadcast.md](tm_transport/01-broadcast.md) |
 | `MultiTransportBroadcastListenerManagingUtils.hpp` | [tm_transport/01-broadcast.md](tm_transport/01-broadcast.md) |
@@ -104,12 +105,15 @@
 | `RabbitMQImporterExporter.hpp` | [tm_transport/03-transports/rabbitmq.md](tm_transport/03-transports/rabbitmq.md) |
 | `RabbitMQOnOrderFacility.hpp` | [tm_transport/03-transports/rabbitmq.md](tm_transport/03-transports/rabbitmq.md) |
 | `RawString.hpp` | [tm_transport/03-transports/json_rest.md](tm_transport/03-transports/json_rest.md) |
-| `RealTimeApp.hpp` | [tm_infra/00-overview.md](tm_infra/00-overview.md)、[tm_infra/01-app-types.md](tm_infra/01-app-types.md)、[tm_infra/03-nodes-and-lifting.md](tm_infra/03-nodes-and-lifting.md)、[tm_infra/04-facilities.md](tm_infra/04-facilities.md) |
+| `RealTimeApp.hpp` | [tm_infra/00-overview.md](tm_infra/00-overview.md)、[tm_infra/01-app-types.md](tm_infra/01-app-types.md)、[tm_infra/03-nodes-and-lifting.md](tm_infra/03-nodes-and-lifting.md)、[tm_infra/04-facilities.md](tm_infra/04-facilities.md)、[tm_infra/10-realtime-executors.md](tm_infra/10-realtime-executors.md) |
 | `RealTimeApp_ConnectN_Piece.hpp` | [tm_infra/09-generated-pieces.md](tm_infra/09-generated-pieces.md) |
 | `RealTimeApp_EnhancedMaybeN_Piece.hpp` | [tm_infra/09-generated-pieces.md](tm_infra/09-generated-pieces.md) |
 | `RealTimeApp_Merge_Piece.hpp` | [tm_infra/09-generated-pieces.md](tm_infra/09-generated-pieces.md) |
 | `RealTimeApp_PureN_Piece.hpp` | [tm_infra/09-generated-pieces.md](tm_infra/09-generated-pieces.md) |
 | `RealTimeApp_VariantSink_Piece.hpp` | [tm_infra/09-generated-pieces.md](tm_infra/09-generated-pieces.md) |
+| `RealTimeMPSCQueue.hpp` | [tm_infra/10-realtime-executors.md](tm_infra/10-realtime-executors.md) |
+| `RealTimeSharedPoolExecutor.hpp` | [tm_infra/10-realtime-executors.md](tm_infra/10-realtime-executors.md) |
+| `RealTimeThreadedExecutor.hpp` | [tm_infra/10-realtime-executors.md](tm_infra/10-realtime-executors.md) |
 | `RedisChain.hpp` | [tm_transport/04-shared-chains.md](tm_transport/04-shared-chains.md) |
 | `RedisComponent.hpp` | [tm_transport/03-transports/redis.md](tm_transport/03-transports/redis.md) |
 | `RedisImporterExporter.hpp` | [tm_transport/03-transports/redis.md](tm_transport/03-transports/redis.md) |
@@ -253,6 +257,7 @@
 - **ChainWritingStatus** — [08-shared-chain.md](tm_basic/08-shared-chain.md)
 - **channel spec** — [00-overview.md](tm_transport/00-overview.md)
 - **CheckTimeComponent** — [02-environments.md](tm_infra/02-environments.md)、[07-time-and-data.md](tm_infra/07-time-and-data.md)
+- **CheckTimeEnabled** — [02-environments.md](tm_infra/02-environments.md)、[07-time-and-data.md](tm_infra/07-time-and-data.md)
 - **ChronoUtils** — [07-time-and-data.md](tm_infra/07-time-and-data.md)
 - **ClassPiece** — [09-generated-pieces.md](tm_infra/09-generated-pieces.md)
 - **client_cert** — [nats.md](tm_transport/03-transports/nats.md)、[redis.md](tm_transport/03-transports/redis.md)
@@ -272,6 +277,7 @@
 - **component** — [02-environments.md](tm_infra/02-environments.md)
 - **compose** — [03-nodes-and-lifting.md](tm_infra/03-nodes-and-lifting.md)
 - **composeByteDataHookPair** — [06-security.md](tm_transport/06-security.md)
+- **concurrentqueue** — [10-realtime-executors.md](tm_infra/10-realtime-executors.md)
 - **connect** — [05-app-runner.md](tm_infra/05-app-runner.md)
 - **connect_2_0** — [09-generated-pieces.md](tm_infra/09-generated-pieces.md)
 - **connectAny** — [05-app-runner.md](tm_infra/05-app-runner.md)
@@ -310,6 +316,7 @@
 - **deadlock** — [08-concurrency.md](tm_transport/08-concurrency.md)
 - **DeclarativeGraph** — [06-declarative-graph.md](tm_infra/06-declarative-graph.md)
 - **DeclarativeGraphChain** — [06-declarative-graph.md](tm_infra/06-declarative-graph.md)
+- **DedicatedThreadExecutor** — [10-realtime-executors.md](tm_infra/10-realtime-executors.md)
 - **delayedImporter** — [03-nodes-and-lifting.md](tm_infra/03-nodes-and-lifting.md)
 - **delayer** — [05-common-flow-util.md](tm_basic/05-common-flow-util.md)
 - **DelaySimulator** — [03-nodes-and-lifting.md](tm_infra/03-nodes-and-lifting.md)
@@ -339,6 +346,7 @@
 - **EtcdNamedValueStoreComponents** — [07-kv-store-components.md](tm_transport/07-kv-store-components.md)
 - **exchange** — [rabbitmq.md](tm_transport/03-transports/rabbitmq.md)
 - **ExclusivePublication** — [aeron_ipc.md](tm_transport/03-transports/aeron_ipc.md)
+- **ExecHandler** — [09-generated-pieces.md](tm_infra/09-generated-pieces.md)、[10-realtime-executors.md](tm_infra/10-realtime-executors.md)
 - **expediter** — [05-common-flow-util.md](tm_basic/05-common-flow-util.md)
 - **exporter** — [00-overview.md](tm_infra/00-overview.md)、[03-nodes-and-lifting.md](tm_infra/03-nodes-and-lifting.md)、[08-concurrency.md](tm_transport/08-concurrency.md)
 - **FacilitioidConnector** — [10-app-runner-utils.md](tm_basic/10-app-runner-utils.md)、[04-facilities.md](tm_infra/04-facilities.md)、[05-app-runner.md](tm_infra/05-app-runner.md)
@@ -351,6 +359,8 @@
 - **FIELD_NAMES** — [02-struct-field-info.md](tm_basic/02-struct-field-info.md)
 - **FIELD_OFFSETS** — [02-struct-field-info.md](tm_basic/02-struct-field-info.md)
 - **FieldOperationThroughAny** — [07-csv-hdf5-flatpack.md](tm_basic/07-csv-hdf5-flatpack.md)
+- **FIFO** — [10-realtime-executors.md](tm_infra/10-realtime-executors.md)
+- **FIFO顺序** — [10-realtime-executors.md](tm_infra/10-realtime-executors.md)
 - **filterOnOptional** — [05-common-flow-util.md](tm_basic/05-common-flow-util.md)
 - **final flag** — [07-time-and-data.md](tm_infra/07-time-and-data.md)
 - **finalFlag** — [07-time-and-data.md](tm_infra/07-time-and-data.md)
@@ -365,6 +375,7 @@
 - **fromAbstractOnOrderFacility** — [04-facilities.md](tm_infra/04-facilities.md)
 - **FullUpdate** — [09-transaction.md](tm_basic/09-transaction.md)
 - **futex** — [shm_cursor.md](tm_transport/03-transports/shm_cursor.md)、[shm_seqlock.md](tm_transport/03-transports/shm_seqlock.md)
+- **gen_realtime_pieces** — [09-generated-pieces.md](tm_infra/09-generated-pieces.md)
 - **GeneralSubscriber** — [09-transaction.md](tm_basic/09-transaction.md)
 - **GeneralSubscriberTypes** — [09-transaction.md](tm_basic/09-transaction.md)
 - **GenericComponentLiftAndRegistration** — [06-declarative-graph.md](tm_infra/06-declarative-graph.md)
@@ -381,6 +392,7 @@
 - **GrpcSerializationHelper** — [grpc_interop.md](tm_transport/03-transports/grpc_interop.md)
 - **GrpcServerFacilityWrapper** — [grpc_interop.md](tm_transport/03-transports/grpc_interop.md)
 - **GrpcServiceInfo** — [grpc_interop.md](tm_transport/03-transports/grpc_interop.md)
+- **HandlerPolicy** — [10-realtime-executors.md](tm_infra/10-realtime-executors.md)
 - **HasStructFieldInfo** — [02-struct-field-info.md](tm_basic/02-struct-field-info.md)
 - **HDF5** — [07-csv-hdf5-flatpack.md](tm_basic/07-csv-hdf5-flatpack.md)
 - **headKey** — [04-shared-chains.md](tm_transport/04-shared-chains.md)
@@ -402,6 +414,8 @@
 - **importWithTrigger** — [10-app-runner-utils.md](tm_basic/10-app-runner-utils.md)
 - **initializeHeartbeatAndAlertComponent** — [05-heartbeat-and-alert.md](tm_transport/05-heartbeat-and-alert.md)
 - **inline-premark** — [shm_seqlock.md](tm_transport/03-transports/shm_seqlock.md)
+- **InlineExecutor** — [10-realtime-executors.md](tm_infra/10-realtime-executors.md)
+- **InlinePolicy** — [10-realtime-executors.md](tm_infra/10-realtime-executors.md)
 - **InMemoryLockFreeChain** — [08-shared-chain.md](tm_basic/08-shared-chain.md)
 - **InMemorySharedChainCreator** — [08-shared-chain.md](tm_basic/08-shared-chain.md)
 - **InMemoryWithLockChain** — [08-shared-chain.md](tm_basic/08-shared-chain.md)
@@ -444,6 +458,8 @@
 - **kleisli** — [03-nodes-and-lifting.md](tm_infra/03-nodes-and-lifting.md)
 - **KleisliSequence** — [03-nodes-and-lifting.md](tm_infra/03-nodes-and-lifting.md)
 - **KleisliUtils** — [03-nodes-and-lifting.md](tm_infra/03-nodes-and-lifting.md)
+- **kOwnContext** — [10-realtime-executors.md](tm_infra/10-realtime-executors.md)
+- **kSerialCallbacks** — [10-realtime-executors.md](tm_infra/10-realtime-executors.md)
 - **layout** — [shm_seqlock.md](tm_transport/03-transports/shm_seqlock.md)
 - **lazyImporter** — [03-nodes-and-lifting.md](tm_infra/03-nodes-and-lifting.md)
 - **leftShift** — [05-common-flow-util.md](tm_basic/05-common-flow-util.md)
@@ -474,6 +490,9 @@
 - **mergedImporter** — [05-common-flow-util.md](tm_basic/05-common-flow-util.md)
 - **meson** — [BUILD.md](BUILD.md)
 - **mixin** — [02-environments.md](tm_infra/02-environments.md)
+- **moodycamel_executor** — [10-realtime-executors.md](tm_infra/10-realtime-executors.md)
+- **MoodycamelThreadedExecutor** — [10-realtime-executors.md](tm_infra/10-realtime-executors.md)
+- **MoodycamelThreadedExecutorComponent** — [10-realtime-executors.md](tm_infra/10-realtime-executors.md)
 - **mTLS** — [06-security.md](tm_transport/06-security.md)
 - **multi_transport_touchups** — [05-heartbeat-and-alert.md](tm_transport/05-heartbeat-and-alert.md)
 - **MultiAppRunnerUtilComponents** — [10-app-runner-utils.md](tm_basic/10-app-runner-utils.md)
@@ -573,6 +592,10 @@
 - **read_simd_ondemand** — [03-serialization.md](tm_basic/03-serialization.md)
 - **real_time_clock** — [01-clocks.md](tm_basic/01-clocks.md)
 - **RealTimeApp** — [01-app-types.md](tm_infra/01-app-types.md)
+- **RealTimeSharedPoolExecutor** — [10-realtime-executors.md](tm_infra/10-realtime-executors.md)
+- **RealTimeSharedPoolExecutorComponent** — [10-realtime-executors.md](tm_infra/10-realtime-executors.md)
+- **RealTimeThreadedExecutorComponent** — [02-environments.md](tm_infra/02-environments.md)、[10-realtime-executors.md](tm_infra/10-realtime-executors.md)
+- **RealTimeThreadedExecutorFor** — [10-realtime-executors.md](tm_infra/10-realtime-executors.md)
 - **Redis** — [redis.md](tm_transport/03-transports/redis.md)
 - **redis_ssl** — [redis.md](tm_transport/03-transports/redis.md)
 - **RedisChain** — [04-shared-chains.md](tm_transport/04-shared-chains.md)
@@ -622,6 +645,8 @@
 - **SharedMemoryBroadcastComponent** — [shared_memory_broadcast.md](tm_transport/03-transports/shared_memory_broadcast.md)
 - **SharedMemoryBroadcastImporterExporter** — [shared_memory_broadcast.md](tm_transport/03-transports/shared_memory_broadcast.md)
 - **SharedMemoryChainComponent** — [04-shared-chains.md](tm_transport/04-shared-chains.md)
+- **SharedThreadPool** — [10-realtime-executors.md](tm_infra/10-realtime-executors.md)
+- **SharedThreadPoolConfig** — [10-realtime-executors.md](tm_infra/10-realtime-executors.md)
 - **shiftedImporter** — [05-common-flow-util.md](tm_basic/05-common-flow-util.md)
 - **shm_cursor** — [shm_cursor.md](tm_transport/03-transports/shm_cursor.md)
 - **shm_seqlock** — [shm_seqlock.md](tm_transport/03-transports/shm_seqlock.md)
@@ -670,6 +695,7 @@
 - **SPMC** — [aeron_ipc.md](tm_transport/03-transports/aeron_ipc.md)、[shm_cursor.md](tm_transport/03-transports/shm_cursor.md)、[shm_seqlock.md](tm_transport/03-transports/shm_seqlock.md)
 - **std::tuple** — [00-overview.md](tm_infra/00-overview.md)
 - **std::variant** — [00-overview.md](tm_infra/00-overview.md)
+- **strand** — [10-realtime-executors.md](tm_infra/10-realtime-executors.md)
 - **StructFieldInfo** — [02-struct-field-info.md](tm_basic/02-struct-field-info.md)
 - **StructFieldInfoBasedCsvExporterFactory** — [07-csv-hdf5-flatpack.md](tm_basic/07-csv-hdf5-flatpack.md)
 - **StructFieldInfoBasedCsvImporterFactory** — [07-csv-hdf5-flatpack.md](tm_basic/07-csv-hdf5-flatpack.md)
@@ -696,6 +722,10 @@
 - **terminationController** — [08-runners-and-control.md](tm_infra/08-runners-and-control.md)
 - **tether** — [aeron_ipc.md](tm_transport/03-transports/aeron_ipc.md)
 - **thread safety** — [08-concurrency.md](tm_transport/08-concurrency.md)
+- **ThreadedExecOptions** — [10-realtime-executors.md](tm_infra/10-realtime-executors.md)
+- **ThreadedHandler** — [10-realtime-executors.md](tm_infra/10-realtime-executors.md)
+- **ThreadedPolicy** — [10-realtime-executors.md](tm_infra/10-realtime-executors.md)
+- **threadHandle** — [10-realtime-executors.md](tm_infra/10-realtime-executors.md)
 - **TimeChecker** — [07-time-and-data.md](tm_infra/07-time-and-data.md)、[09-generated-pieces.md](tm_infra/09-generated-pieces.md)
 - **TimeCheckerMode** — [07-time-and-data.md](tm_infra/07-time-and-data.md)
 - **TimeComponentEnhancedWithBoostTrivialLogging** — [01-clocks.md](tm_basic/01-clocks.md)、[04-logging.md](tm_basic/04-logging.md)
@@ -765,6 +795,7 @@
 - **VIEFacility** — [10-app-runner-utils.md](tm_basic/10-app-runner-utils.md)
 - **VIEOnOrderFacility** — [04-facilities.md](tm_infra/04-facilities.md)
 - **VoidStruct** — [06-value-types.md](tm_basic/06-value-types.md)
+- **wakeIdle** — [10-realtime-executors.md](tm_infra/10-realtime-executors.md)
 - **websocket** — [websocket.md](tm_transport/03-transports/websocket.md)
 - **WebSocketClientFacility** — [websocket.md](tm_transport/03-transports/websocket.md)
 - **WebSocketComponent** — [websocket.md](tm_transport/03-transports/websocket.md)
@@ -801,6 +832,7 @@
 - **元数** — [09-generated-pieces.md](tm_infra/09-generated-pieces.md)
 - **全局游标** — [shm_cursor.md](tm_transport/03-transports/shm_cursor.md)
 - **共享内存** — [shared_memory_broadcast.md](tm_transport/03-transports/shared_memory_broadcast.md)、[shm_cursor.md](tm_transport/03-transports/shm_cursor.md)、[shm_seqlock.md](tm_transport/03-transports/shm_seqlock.md)
+- **共享线程池** — [10-realtime-executors.md](tm_infra/10-realtime-executors.md)
 - **共享链** — [08-shared-chain.md](tm_basic/08-shared-chain.md)、[04-shared-chains.md](tm_transport/04-shared-chains.md)
 - **分布式一致性** — [04-shared-chains.md](tm_transport/04-shared-chains.md)
 - **分布式事务** — [09-transaction.md](tm_basic/09-transaction.md)
@@ -817,6 +849,7 @@
 - **发布** — [01-broadcast.md](tm_transport/01-broadcast.md)
 - **只读查询** — [07-kv-store-components.md](tm_transport/07-kv-store-components.md)
 - **同机进程间** — [aeron_ipc.md](tm_transport/03-transports/aeron_ipc.md)、[shared_memory_broadcast.md](tm_transport/03-transports/shared_memory_broadcast.md)
+- **同步执行** — [10-realtime-executors.md](tm_infra/10-realtime-executors.md)
 - **同步运行** — [08-runners-and-control.md](tm_infra/08-runners-and-control.md)
 - **同网段** — [multicast.md](tm_transport/03-transports/multicast.md)
 - **告警** — [05-heartbeat-and-alert.md](tm_transport/05-heartbeat-and-alert.md)
@@ -845,6 +878,7 @@
 - **序列化宏** — [02-struct-field-info.md](tm_basic/02-struct-field-info.md)
 - **心跳** — [05-heartbeat-and-alert.md](tm_transport/05-heartbeat-and-alert.md)、[08-concurrency.md](tm_transport/08-concurrency.md)
 - **成环** — [04-facilities.md](tm_infra/04-facilities.md)
+- **执行器** — [10-realtime-executors.md](tm_infra/10-realtime-executors.md)
 - **执行模型** — [01-app-types.md](tm_infra/01-app-types.md)
 - **批处理** — [05-common-flow-util.md](tm_basic/05-common-flow-util.md)
 - **批聚合** — [05-common-flow-util.md](tm_basic/05-common-flow-util.md)
@@ -886,6 +920,7 @@
 - **类型适配** — [10-app-runner-utils.md](tm_basic/10-app-runner-utils.md)
 - **线程安全** — [08-concurrency.md](tm_transport/08-concurrency.md)
 - **线程模型** — [01-app-types.md](tm_infra/01-app-types.md)
+- **线程池** — [10-realtime-executors.md](tm_infra/10-realtime-executors.md)
 - **组件** — [02-environments.md](tm_infra/02-environments.md)
 - **组图** — [05-app-runner.md](tm_infra/05-app-runner.md)
 - **编译** — [BUILD.md](BUILD.md)

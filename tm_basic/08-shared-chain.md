@@ -208,7 +208,7 @@ public:
 
 ---
 
-### 5. `ChainWritingStatus`（`ChainWriter.hpp:72`）与 `InputHandler` 协议
+### 5. `ChainWritingStatus`（`ChainWriter.hpp:264`）与 `InputHandler` 协议
 
 ```cpp
 enum class ChainWritingStatus {
@@ -244,7 +244,7 @@ public:
 
 ---
 
-### 6. `ChainWriter`（`ChainWriter.hpp:22`）
+### 6. `ChainWriter`（`ChainWriter.hpp:214`）
 
 ```cpp
 template <class App, class Chain, class ChainItemFolder,
@@ -271,9 +271,9 @@ public:
 - `using OffChainUpdateType = ...;`
 - `work(env, chain, currentState) -> tuple<optional<OffChainUpdateType>, optional<tuple<string, DataType>>>`
 
-`ChainLock<Chain>`（`ChainWriter.hpp:34`）是 RAII helper，在 `appendAfter` 调用周期内持有链的 `acquireLock/releaseLock`（当链提供该接口时）。
+`ChainLock<Chain>`（`ChainWriter.hpp:226`）是 RAII helper，在 `appendAfter` 调用周期内持有链的 `acquireLock/releaseLock`（当链提供该接口时）。
 
-#### 6.1 框架自带的 InputHandler / IdleLogic 实现（`ChainWriter.hpp:1983`–`:2100`）
+#### 6.1 框架自带的 InputHandler / IdleLogic 实现（`ChainWriter.hpp:2181`–`:2100`）
 
 不必从零写协议——`ChainWriter.hpp` 末尾提供了一组开箱即用的实现，覆盖最常见的写入语义：
 
@@ -290,7 +290,7 @@ public:
 `SimplyPlaceOnChainInputHandler` 的实现极简，可当作写自定义 handler 的模板（`:2020`）：
 
 ```cpp
-// 来源：tm_basic/tm_kit/basic/simple_shared_chain/ChainWriter.hpp:2020-2031
+// 来源：tm_basic/tm_kit/basic/simple_shared_chain/ChainWriter.hpp:2218-2229
 template <class Env, class ChainData>
 class SimplyPlaceOnChainInputHandler {
 public:
@@ -308,13 +308,19 @@ public:
 
 注意 `initialize` 与 `handleInput` 的第二、三个参数是 `void *` 而非 `Env *` / `Chain *`——协议对参数类型是宽松的，写自定义 handler 时用具体类型也可以（Hana 检测只看方法名与参数个数）。
 
-`ChainWritingResult`（`ChainWriter.hpp:78`）是 `std::tuple<ChainWritingStatus, ResponseType>` 的别名，即 `ChainWriter` 产出的 facility 的响应类型。
+`ChainWritingResult`（`ChainWriter.hpp:270`）是 `std::tuple<ChainWritingStatus, ResponseType>` 的别名，即 `ChainWriter` 产出的 facility 的响应类型。
 
 工厂封装：`ChainWriterOnOrderFacilityFactory`（`:2097`）与 `ChainWriterOnOrderFacilityWithExternalEffectsFactory`（`:2092`）是 `std::function` 别名（不是类），把上述两个静态函数包成可传递的工厂对象。
 
 **`SingleWritingMode` 优化开关**：自定义 `InputHandler` 可以声明 `static constexpr bool SingleWritingMode = true;` 来告诉框架"我永远只写一条"。`Has_SingleWritingMode<T>` trait（`:81`、`:84`）用 SFINAE 检测这个成员，未声明时默认 `false`（走通用路径）。声明它的 handler 能省掉一次 vector 构造与遍历。
 
 ---
+
+### 6.2 实时 ChainWriter 的本地线程模型
+
+实时特化的请求处理使用 `chain_writer_detail::ThreadedHandler` / `BusyLoopThreadedHandler`（`tm_basic/tm_kit/basic/simple_shared_chain/ChainWriter.hpp:27`、`:126`），不再继承 infra 的忙等 handler。`ChainPollingPolicy::busyLoop` / `noYield` 及工厂 API 保持有效；普通模式保留空闲约 1ms 的轮询与 IdleLogic 回调，等待带 predicate，处理期间入队不会额外白等 1ms。
+
+因此给 Environment 选择 SharedPool / Moodycamel / Inline 不会替换 ChainWriter 的本地请求处理线程。其启动等待、链尾折叠和 IdleLogic 可能长期阻塞，保持独立线程可避免占住共享池。ChainReader importer 自带轮询线程，也不由该扩展点接管；基于 action 的路径仍受图节点策略影响。详见 [实时执行器](../tm_infra/10-realtime-executors.md)。
 
 ### 7. `OneShotChainWriter`（`OneShotChainWriter.hpp:13`）
 
@@ -601,7 +607,7 @@ OneShotChainWriter<TheEnvironment, InMemoryWithLockChain<OrderEvent>>::write(
 | 维度 | 实时（`RealTimeApp`） | 回测（`SinglePass`/`TopDown`） |
 |---|---|---|
 | ChainReader importer | 后台线程持续轮询；有 `waitForUpdate` 时等待通知 | 单线程同步折叠；轮询等待无意义，直接继续 |
-| ChainWriter | 后台线程持续检查新请求，CAS/mutex 写入 | 同步处理请求，无后台线程 |
+| ChainWriter | 本地 handler 专用线程 / BusyLoop，独立于 Environment 执行器，CAS/mutex 写入 | 同步处理请求，无后台线程 |
 | `InMemoryLockFreeChain` | 线程安全；并发写入 CAS 竞争 | 无并发竞争，CAS 必成功 |
 | `InMemoryWithLockChain` | mutex + condition_variable 配合等待新数据 | mutex 保护仍有效，但 wait 语义无意义 |
 | `BasicWithTimeAppChainCreator` | 所有操作为 no-op | 所有操作为 no-op（纯测试用） |
@@ -632,7 +638,7 @@ OneShotChainWriter<TheEnvironment, InMemoryWithLockChain<OrderEvent>>::write(
 
 ## 第三方依赖
 
-- **Boost.Hana** — `ChainReader.hpp:14`、`ChainWriter.hpp:19`，用于编译期检测 `foldInPlace`、`filterUpdate`、`waitForUpdate`、`chainIDForState` 等可选方法是否存在（`boost::hana::is_valid`）。
+- **Boost.Hana** — `ChainReader.hpp:14`、`ChainWriter.hpp:20`，用于编译期检测 `foldInPlace`、`filterUpdate`、`waitForUpdate`、`chainIDForState` 等可选方法是否存在（`boost::hana::is_valid`）。
 - **Boost（线程库）** — `InMemoryWithLockChain` 和 `ChainWriter` 使用标准库 `std::mutex`、`std::condition_variable`、`std::thread`，无额外 Boost 线程依赖。
 - **跨进程/持久化链**（在 tm_transport 中，不在本模块）— etcd 链、Redis 链、RocksDB 链各自依赖对应的第三方库（见 `tm_transport/04-shared-chains.md`）。
 

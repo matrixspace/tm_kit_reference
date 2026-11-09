@@ -61,6 +61,7 @@ tm_infra  ──►  tm_basic  ──►  tm_transport  ──►  tm_examples
 | 07 | [时间与数据](tm_infra/07-time-and-data.md) | WithTime、VersionedData、ChronoUtils | `WithTimeData.hpp`, `VersionedData.hpp` |
 | 08 | [Runner 与控制](tm_infra/08-runners-and-control.md) | SynchronousRunner、TerminationController、ControllableNode、Trace | `TerminationController.hpp` |
 | 09 | [生成的元数文件](tm_infra/09-generated-pieces.md) | `*_Piece.hpp` 的生成规律与元数上限（**不逐个展开**） | `*_Piece.hpp` |
+| 10 | [实时执行器](tm_infra/10-realtime-executors.md) | ExecHandler、Inline / Dedicated / SharedPool / Moodycamel、线程与顺序约束 | `RealTimeThreadedExecutor.hpp`, `RealTimeSharedPoolExecutor.hpp`, `MoodycamelThreadedExecutor.hpp` |
 
 ### tm_basic —— 基础工具
 
@@ -140,6 +141,7 @@ tm_infra  ──►  tm_basic  ──►  tm_transport  ──►  tm_examples
 |---|---|
 | 写一个能在实时和回测下都跑的程序 | [QUICK_START](QUICK_START.md) §6、[tm_infra/01](tm_infra/01-app-types.md) |
 | 定义一个有字段名反射的结构体 | [tm_basic/02](tm_basic/02-struct-field-info.md) |
+| 替换实时节点执行器 / 使用共享线程池 / Moodycamel | [tm_infra/10](tm_infra/10-realtime-executors.md) |
 | 选序列化格式（CBOR / Proto / JSON） | [tm_basic/03](tm_basic/03-serialization.md) |
 | 表示价格、日期、编译期常量 | [tm_basic/06](tm_basic/06-value-types.md) |
 | 做 5 分钟滑动窗口 / 批量聚合 | [tm_basic/05](tm_basic/05-common-flow-util.md) |

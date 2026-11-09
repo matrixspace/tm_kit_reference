@@ -101,7 +101,7 @@ public:
 };
 ```
 
-内部实现是 `M::IExternalComponent` + `AbstractOnOrderFacility<Req,Resp>` + 带线程的 `ThreadedHandler`（`:52`），因此拥有自己的后台线程，通过 `grpc::Channel` 与服务端通信。
+内部实现是 `M::IExternalComponent` + `AbstractOnOrderFacility<Req,Resp>` + `ThreadedHandler`（`:52`）。默认 Dedicated 执行器提供专用后台线程；Environment 可为该 handler 选择 SharedPool、Moodycamel 或 Inline，所以不能假定永远独占线程。该选择不改变 gRPC 自身的网络执行机制。见 [实时执行器](../../tm_infra/10-realtime-executors.md)。
 
 ### 4. 服务端包装：`GrpcServerFacilityWrapper<M>`（`GrpcServerFacility.hpp:29`）
 

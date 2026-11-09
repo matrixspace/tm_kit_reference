@@ -93,7 +93,7 @@ using FullRequestType = std::tuple<IdentityType, Request>;
 
 ### 2.3 `CheckTimeComponent<true>` 与 `<false>` 是不同类型
 
-`Environments.hpp:42` 的 `template <bool DoCheck> struct CheckTimeComponent`。`Environment<CheckTimeComponent<true>, ...>` 与 `Environment<CheckTimeComponent<false>, ...>` 是两个完全不同的类型，不能互相赋值，也不能共用同一个 `AppRunner` 实例化。
+`Environments.hpp:43` 的 `template <bool DoCheck = false> struct CheckTimeComponent`。`Environment<CheckTimeComponent<true>, ...>` 与 `Environment<CheckTimeComponent<false>, ...>` 是两个完全不同的类型，不能互相赋值，也不能共用同一个 `AppRunner` 实例化。`CheckTimeComponent<>` 等价于 `<false>`；缺少 `CheckTime` 成员也通过 `CheckTimeEnabled` 按 false 处理。三种可执行 App 均默认关闭时间检查，版本检查仍有效。
 
 ### 2.4 `transaction::current` 就是 `v2`
 
@@ -153,13 +153,15 @@ using FullRequestType = std::tuple<IdentityType, Request>;
 
 ## 4. 线程与生命周期
 
-### 4.1 实时模式下节点各跑各的线程
+### 4.1 实时模式的线程取决于节点与执行器
 
-`RealTimeApp` 的每个 importer/exporter/标记了 `SuggestThreaded(true)` 的 action 都有自己的线程。后果：
+普通 action / exporter 默认在上游线程同步执行。基于 handler 的节点选 `SuggestThreaded(true)` 后走 Environment 执行器，默认 Dedicated 专用线程；basic SharedPool 是每节点串行的共享线程池，Moodycamel 是可选专用线程且只保证每生产者 FIFO。显式选 Inline 后即使标记 threaded 也同步执行。自带线程的 importer / 网络 IO 线程不因此被替换。详见 [执行器参考](tm_infra/10-realtime-executors.md)。后果：
 
 - 共享可变状态必须加锁（除非该 App 的 `PossiblyMultiThreaded` 为 false）
 - `CommonFlowUtils` 的很多工具有 `useMutex` / `suggestThreaded` 参数，**默认值与 `M::PossiblyMultiThreaded` 一致**——回测下默认不加锁，实时下默认加锁
 - `rightShift` 用了 `static std::deque` 缓冲（`CommonFlowUtils.hpp:1667`），**同一进程内多处调用会共享缓冲区**。每次需要新的右移节点时要重新调用 `rightShift`，不要复用返回值
+
+默认 Dedicated 和可选 Moodycamel 的工作线程 detached；`stop()` 不等于 join 或排空。不能在调用 stop 后立即销毁 host / Environment，并假定没有回调还在访问它们。共享池也只保证同一节点回调互斥，不能自动保护多个节点共享的状态。
 
 ### 4.2 `env` 与外部资源的生命周期必须覆盖图
 
@@ -301,7 +303,7 @@ grep -n 'error:' build_debug.log | grep -v 'warning:'    # 真正的错误
 | 回测结果与实时不一致 | 是否用了 `env->now()`；数据库查询是否读了"现在"而非"当时"；`whereClause` 是否加 |
 | 程序跑一段时间后心跳停了 | `furthestPoint` 默认 24 小时（见 5.3） |
 | 图不再推进（卡死） | facility 的 1:1 约束（`setupVIEFacilitySelfLoopAndWait`）；`synchronizer2` 等不到配对 |
-| 时间戳倒退 | `CheckTimeComponent<true>` 会报错；检查上游是否用了多个时钟源 |
+| 时间戳倒退 | 默认不检查；显式 `CheckTimeComponent<true>` 会静默丢弃倒退数据。检查上游时钟及跨生产者重排 |
 
 ## 9. 相关章节
 

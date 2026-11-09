@@ -2,7 +2,7 @@
 title: Environment 组件混合模型
 library: tm_infra
 headers: [tm_kit/infra/Environments.hpp]
-keywords: [Environment, component, 组件, 虚继承, mixin, finalizeEnvironment, CheckTimeComponent, TrivialExitControlComponent, FlagExitControlComponent, ConstValueHolderComponent, HiddenTimeDependencyComponent, NoHiddenTimeDependencyComponent, EmptyEnvironment, LockFreeTimeCheckerComponent]
+keywords: [Environment, component, 组件, 虚继承, mixin, finalizeEnvironment, CheckTimeComponent, TrivialExitControlComponent, FlagExitControlComponent, ConstValueHolderComponent, HiddenTimeDependencyComponent, NoHiddenTimeDependencyComponent, EmptyEnvironment, LockFreeTimeCheckerComponent, CheckTimeEnabled, RealTimeThreadedExecutorComponent]
 ---
 
 # Environment 组件混合模型
@@ -13,7 +13,7 @@ keywords: [Environment, component, 组件, 虚继承, mixin, finalizeEnvironment
 
 这个机制是整个 TM Kit 实时/回测双模式的另一半支点：换掉时钟组件、换掉退出控制组件，业务代码不动，程序就从实时变成回测。
 
-`Environments.hpp` 全文只有 **113 行**，是 tm_infra 里最短的核心头文件之一。它提供的全部内容是：一个 `Environment` 模板、五个内置组件、两个标记类、一个 `EmptyEnvironment`。
+`Environments.hpp` 提供 `Environment` 模板、时间检查策略及检测 trait、退出控制和值组件、时间依赖标记，以及 `EmptyEnvironment`。
 
 ## 头文件与命名空间
 
@@ -21,16 +21,16 @@ keywords: [Environment, component, 组件, 虚继承, mixin, finalizeEnvironment
 #include <tm_kit/infra/Environments.hpp>
 ```
 
-命名空间 `dev::cd606::tm::infra`。无第三方依赖，只用到 `<iostream>`、`<chrono>`、`<cstdlib>`、`<atomic>`（`tm_infra/tm_kit/infra/Environments.hpp:4`）。
+命名空间 `dev::cd606::tm::infra`。无第三方依赖，只用到 `<iostream>`、`<chrono>`、`<cstdlib>`、`<atomic>`、`<type_traits>`（`tm_infra/tm_kit/infra/Environments.hpp:4`）。
 
 ## 核心类型与签名
 
 ### Environment：虚继承混合
 
-源码注释一句话说清了设计：`//an environment is simply a mixture of components`（`tm_infra/tm_kit/infra/Environments.hpp:10`）。
+源码注释一句话说清了设计：`//an environment is simply a mixture of components`（`tm_infra/tm_kit/infra/Environments.hpp:11`）。
 
 ```cpp
-// 来源：tm_infra/tm_kit/infra/Environments.hpp:11
+// 来源：tm_infra/tm_kit/infra/Environments.hpp:12
 template <class ... Components>
 class Environment : public virtual Components... {
 ```
@@ -40,7 +40,7 @@ class Environment : public virtual Components... {
 三个构造函数覆盖了默认构造、拷贝构造各组件、移动构造各组件：
 
 ```cpp
-// 来源：tm_infra/tm_kit/infra/Environments.hpp:31
+// 来源：tm_infra/tm_kit/infra/Environments.hpp:32
 Environment() : Components()... {}
 Environment(Components const &... components) : Components(components)... {}
 Environment(Components &&... components) : Components(std::move(components))... {}
@@ -76,7 +76,7 @@ env.transport::json_rest::JsonRESTComponent::setDocRoot(
 解法是经典的 SFINAE 检测 + `if constexpr` 级联：
 
 ```cpp
-// 来源：tm_infra/tm_kit/infra/Environments.hpp:14
+// 来源：tm_infra/tm_kit/infra/Environments.hpp:15
 template <class X>
 struct TrueType : std::true_type {};
 template <class X>
@@ -100,7 +100,7 @@ void internal_finalizeEnvironment() {
 然后对外暴露一个方法，按模板参数的声明顺序逐个处理：
 
 ```cpp
-// 来源：tm_infra/tm_kit/infra/Environments.hpp:35
+// 来源：tm_infra/tm_kit/infra/Environments.hpp:36
 void finalizeEnvironment() {
     internal_finalizeEnvironment<Components...>();
 }
@@ -130,24 +130,24 @@ doTouchups();
 
 `Environments.hpp` 自带六个组件，都极小。
 
-**`CheckTimeComponent<bool DoCheck>`** —— 纯编译期开关：
+**`CheckTimeComponent<bool DoCheck = false>`** —— 纯编译期开关：
 
 ```cpp
-// 来源：tm_infra/tm_kit/infra/Environments.hpp:41
-template <bool DoCheck>
+// 来源：tm_infra/tm_kit/infra/Environments.hpp:42
+template <bool DoCheck = false>
 struct CheckTimeComponent {
     static constexpr bool CheckTime = DoCheck;
 };
 ```
 
-节点内部的 `TimeChecker` 读这个常量决定是否丢弃时间倒退的数据。可以在生成代码里看到它被使用：`if (StateT::CheckTime) { if (tp0_ && data.timedData.timePoint < *tp0_) { return false; } }`（`tm_infra/tm_kit/infra/RealTimeApp_TimeChecker_Piece.hpp:19`）。
+节点内部通过 `CheckTimeEnabled<StateT>::value` 决定是否丢弃时间倒退的数据。`CheckTimeEnabled`（`tm_infra/tm_kit/infra/Environments.hpp:47`）缺省为 `false_type`；仅当 `StateT::CheckTime` 存在时读取该静态常量。因此 `CheckTimeComponent<>`、显式 `<false>` 和完全省略时间策略都关闭时间检查；只有显式 `<true>`（或自定义 `CheckTime=true`）启用。RealTime / SinglePass / TopDownSinglePass 及其 variant 检查路径均使用这一规则。
 
-注意**版本检查不受它控制**：同一段代码里 `versionChecker0_.checkVersion(...)` 在 `if (StateT::CheckTime)` 之外，无条件执行。
+注意**版本检查不受它控制**：同一段代码里 `versionChecker0_.checkVersion(...)` 在 `if (CheckTimeEnabled<StateT>::value)` 之外，无条件执行。
 
 **`LockFreeTimeCheckerComponent`** —— 空标记组件，**仅实时模式、opt-in**：
 
 ```cpp
-// 来源：tm_infra/tm_kit/infra/Environments.hpp:57
+// 来源：tm_infra/tm_kit/infra/Environments.hpp:65
 struct LockFreeTimeCheckerComponent {};
 ```
 
@@ -156,7 +156,7 @@ struct LockFreeTimeCheckerComponent {};
 **`TrivialExitControlComponent`** —— `running()` 恒为 true，`exit()` 直接终止进程：
 
 ```cpp
-// 来源：tm_infra/tm_kit/infra/Environments.hpp:59
+// 来源：tm_infra/tm_kit/infra/Environments.hpp:67
 struct TrivialExitControlComponent {
     static constexpr bool running() {
         return true;
@@ -172,7 +172,7 @@ struct TrivialExitControlComponent {
 **`FlagExitControlComponent`** —— 用一个 atomic 标志实现可优雅退出：
 
 ```cpp
-// 来源：tm_infra/tm_kit/infra/Environments.hpp:68
+// 来源：tm_infra/tm_kit/infra/Environments.hpp:76
 class FlagExitControlComponent {
 private:
     std::atomic<bool> running_ = true;
@@ -191,7 +191,7 @@ public:
 **`ConstValueHolderComponent<T>`** —— 往 Environment 里塞一个只读的业务值：
 
 ```cpp
-// 来源：tm_infra/tm_kit/infra/Environments.hpp:80
+// 来源：tm_infra/tm_kit/infra/Environments.hpp:88
 template <class T>
 class ConstValueHolderComponent {
 private:
@@ -224,7 +224,7 @@ env.infra::template ConstValueHolderComponent<EnvValues<Chain>>::operator=(
 **`EmptyEnvironment<TimePoint>`** —— 不是组件，是个独立的、`final` 的最小 Environment：
 
 ```cpp
-// 来源：tm_infra/tm_kit/infra/Environments.hpp:106
+// 来源：tm_infra/tm_kit/infra/Environments.hpp:114
 template <class TimePoint=std::chrono::system_clock::time_point>
 class EmptyEnvironment final {
 public:
@@ -245,12 +245,16 @@ public:
 };
 ```
 
-源码注释说明了它的存在理由："this class is provided for template specialization purposes"（`:92`）——给那些需要一个 Environment 类型参数、但其实不需要任何能力的模板代码用。它不能作为组件混入 `Environment<...>`（`final`），也不提供日志、ID 等任何东西。`tm_examples/` 里没有它的用例。
+源码注释说明了它的存在理由："this class is provided for template specialization purposes"（`:113`）——给那些需要一个 Environment 类型参数、但其实不需要任何能力的模板代码用。它不能作为组件混入 `Environment<...>`（`final`），也不提供日志、ID 等任何东西。`tm_examples/` 里没有它的用例。
+
+### 实时执行器选择组件
+
+`RealTimeThreadedExecutorComponent<Exec>` 在独立头文件 `tm_kit/infra/RealTimeThreadedExecutor.hpp` 中定义，为 Environment 提供 `RealTimeThreadedExecutor<Item>` 成员模板。缺省选 infra Dedicated；basic 提供 SharedPool 和可选 Moodycamel 的组件。它只影响走 `ThreadedPolicy` 的 handler，不改变所有后台 IO 线程或回测调度。详见 [执行器参考](10-realtime-executors.md)。
 
 ### 两个时间依赖标记
 
 ```cpp
-// 来源：tm_infra/tm_kit/infra/Environments.hpp:99
+// 来源：tm_infra/tm_kit/infra/Environments.hpp:107
 //These marks hidden/no hidden time dependency inside the environment
 //Currently this affects TopDown execution scheme, but it may
 //affect others in the future
@@ -326,7 +330,7 @@ using M = infra::TopDownSinglePassIterationApp<TheEnvironment>;
 
 | 组件槽位 | 实时 | 回测 | 为什么不同 |
 |---|---|---|---|
-| 时间检查 | `CheckTimeComponent<false>` | `CheckTimeComponent<true>` | 实时数据来自网络，轻微乱序是常态，开检查会丢数据；回测数据应严格有序，开检查能暴露数据问题 |
+| 时间检查（示例显式选择；缺省均关闭） | `CheckTimeComponent<false>` | `CheckTimeComponent<true>` | 实时数据来自网络，轻微乱序是常态，开检查会丢数据；回测数据应严格有序，开检查能暴露数据问题 |
 | 退出控制 | `TrivialExitControlComponent` | `FlagExitControlComponent` | 回测的 `finalize()` 内有 `while (env->running())` 主循环，需要一个能翻成 false 的标志才能收尾；实时的 `finalize()` 立即返回，不需要 |
 | 时钟 | `real_time_clock::ClockComponent` | `top_down_single_pass_iteration_clock::ClockComponent<..., true>` | 挂钟 vs 数据时间戳。时钟组件的 `PreserveInputRelativeOrder` 必须与 app type 匹配，否则编译失败 |
 | 日志增强的第二参数 | 省略（默认） | `false` | 控制日志是否带实时时间戳；回测里时间是虚拟的，打真实时间戳会造成误解 |
@@ -352,6 +356,7 @@ using M = infra::TopDownSinglePassIterationApp<TheEnvironment>;
 - **组件声明顺序影响 `finalizeEnvironment()` 的调用顺序**：`internal_finalizeEnvironment<Components...>()` 严格按模板参数顺序级联（`:36`）。如果两个组件的 finalize 有先后依赖（A 必须先起来 B 才能连上去），顺序就是语义的一部分。实践中应尽量避免这种依赖。
 - **`HiddenTimeDependencyComponent` 是个陷阱**：名字看着像在打开功能，实际什么都不做。要关闭请用 `NoHiddenTimeDependencyComponent`。
 - **时钟与 app type 不匹配会编译失败**，报错是 SFINAE 失败（"没有匹配的模板"），不直观。先检查 `PreserveInputRelativeOrder` 是否对，详见 [01-app-types.md](01-app-types.md)。
+- **缺省不做时间检查**：回测要拒绝时间倒退必须显式选 `CheckTimeComponent<true>`；不是换成回测 App 就自动开启。
 - **`CheckTimeComponent<false>` 不会关掉版本检查**：两者是独立机制，见上文。
 - **`EmptyEnvironment` 不能当组件用**，它是 `final` 的。
 - **在 `r.finalize()` 之前完成所有组件配置**：`finalizeEnvironment()` 在 `finalize()` 内部被调用（`WithTimeData.hpp:2864`），之后再改组件配置，像 `setDocRoot` 这类"配置先存、finalize 时生效"的组件就不会读到新值了。

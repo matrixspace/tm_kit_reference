@@ -2,7 +2,7 @@
 title: 机器生成的代码片段与数字后缀约定
 library: tm_infra
 headers: [tm_kit/infra/RealTimeApp_PureN_Piece.hpp, tm_kit/infra/RealTimeApp_EnhancedMaybeN_Piece.hpp, tm_kit/infra/RealTimeApp_ConnectN_Piece.hpp, tm_kit/infra/RealTimeApp_VariantSink_Piece.hpp, tm_kit/infra/RealTimeApp_Merge_Piece.hpp, tm_kit/infra/WithTimeData_ConnectN_ClassPiece.hpp, tm_kit/infra/WithTimeData_VariantSink_ClassPiece.hpp]
-keywords: [Piece, ClassPiece, 生成代码, 元数, arity, liftPure2, enhancedMaybe2, actionAsSink_2_0, connect_2_0, merge2, 数字后缀, ActionCore, ProducerN, TimeChecker, VariantSink]
+keywords: [Piece, ClassPiece, 生成代码, 元数, arity, liftPure2, enhancedMaybe2, actionAsSink_2_0, connect_2_0, merge2, 数字后缀, ActionCore, ExecHandler, ProducerN, TimeChecker, VariantSink, gen_realtime_pieces]
 ---
 
 # 机器生成的代码片段与数字后缀约定
@@ -48,7 +48,7 @@ keywords: [Piece, ClassPiece, 生成代码, 元数, arity, liftPure2, enhancedMa
 它们在宿主类体内被 include，例如：
 
 ```cpp
-// 来源：tm_infra/tm_kit/infra/RealTimeApp.hpp:2224
+// 来源：tm_infra/tm_kit/infra/RealTimeApp.hpp:2091
 #include <tm_kit/infra/RealTimeApp_Merge_Piece.hpp>
 #include <tm_kit/infra/RealTimeApp_PureN_Piece.hpp>
 #include <tm_kit/infra/RealTimeApp_MaybeN_Piece.hpp>
@@ -66,7 +66,7 @@ keywords: [Piece, ClassPiece, 生成代码, 元数, arity, liftPure2, enhancedMa
 - 为什么在 IDE 里跳转到 `liftPure2` 的定义会落到一个"看起来语法错误"的文件里。这是正常的。
 - 为什么一次改动会导致大面积重编译。
 
-`RealTimeApp.hpp` 里共有 17 处这样的 include，分布在 `:113` 到 `:3400`；`TopDownSinglePassIterationApp.hpp` 有 16 处（`:183` 到 `:3049`）；`WithTimeData.hpp` 有 6 处（`:430` 到 `:3645`）。
+`RealTimeApp.hpp` 里共有 17 处这样的 include，分布在 `:222` 到 `:3371`；`TopDownSinglePassIterationApp.hpp` 有 16 处（`:183` 到 `:3049`）；`WithTimeData.hpp` 有 6 处（`:430` 到 `:3645`）。
 
 ## 元数族清单
 
@@ -99,7 +99,7 @@ keywords: [Piece, ClassPiece, 生成代码, 元数, arity, liftPure2, enhancedMa
 | AbstractAction / AbstractActionCore | 抽象基类的偏特化 | 20 |
 | ProducerN | `Producer<std::variant<A0,...>>`，含 `addHandler_0` … `addHandler_K` | 20 |
 | TimeChecker | `TimeChecker<bool, std::variant<A0,...>>`，每路一个时间戳 + 一个 version checker | 20 |
-| ThreadedHandler | 实时模式下的线程化分发（仅 `RealTimeApp`） | 20 |
+| ExecHandler（文件名仍为 ThreadedHandler） | 实时模式下统一的同步 / 异步 handler 分发，策略参数 `Policy` | 20 |
 | Provider_Adapter | `ProviderAdapter_N_K`，把多路 provider 适配成单路（仅 `SinglePassIterationApp`） | N: 2–20 |
 | TupleCopy | `makeCopy` / `ValueCopier<std::tuple<...>>`（仅 `WithTimeData`） | 20 |
 | VariantExecute | `AppRunner::execute` 的多路重载（仅 `WithTimeData`） | 20 |
@@ -313,7 +313,7 @@ infra::DeclarativeGraph<R>("", {
 
 | 族 | RealTimeApp | TopDown | SinglePass | BasicWithTime |
 |---|---|---|---|---|
-| ThreadedHandler | 有 | 无 | 无 | 无 |
+| ExecHandler（ThreadedHandler 文件） | 有 | 无 | 无 | 无 |
 | Provider_Adapter | 无 | 无 | 有 | 无 |
 | TimeChecker | 有 | 有 | 无 | 无 |
 | PureN / MaybeN / KleisliN 等分列 | 分成 7 个文件 | 分成 7 个文件 | 合并为 1 个 `Pure_Maybe_Kleisli` | 合并为 1 个 |
@@ -321,9 +321,9 @@ infra::DeclarativeGraph<R>("", {
 
 解读：
 
-- `ThreadedHandler` 只有实时模式有，因为只有它可能多线程（`PossiblyMultiThreaded == true`，`RealTimeApp.hpp:787`）。
+- `RealTimeApp_ThreadedHandler_Piece.hpp` 当前定义的是 `ExecHandler<variant<...>,W,Policy>` 特化，支持 Inline 和 threaded 策略；普通 `ThreadedHandler<T,W>` 是继承它的兼容类包装。这一执行器体系只用于实时模式。
 - `Provider_Adapter` 只有 `SinglePassIterationApp` 有，因为只有它是拉取式执行，需要把多路 provider 适配成单路（`ProviderAdapter_2_0`，`SinglePassIterationApp_Provider_Adapter_Piece.hpp:1`）。
-- `BasicWithTimeApp` 的片段最少（5 个）且合并得最厉害，因为它不真正执行，生成的东西只要够过类型检查就行。相应地它的文件也最小（970 行 vs 实时模式 4005 行）。
+- `BasicWithTimeApp` 的片段最少（5 个）且合并得最厉害，因为它不真正执行，生成的东西只要够过类型检查就行。相应地它的文件也最小（970 行 vs 实时模式 3976 行）。
 
 另外单纯从体量看，`SinglePassIterationApp_ActionCore_Piece.hpp` 是全库最大的生成文件，**31615 行**，占生成代码总量的两成以上。
 
@@ -345,9 +345,14 @@ infra::DeclarativeGraph<R>("", {
 
 示例代码里的 `boost::hana::curry` 来自 [Boost.Hana](https://www.boost.org/doc/libs/release/libs/hana/)，是 tm_examples 的依赖，不是 tm_infra 的。
 
+## 已入库的生成器
+
+**已入库生成器的覆盖范围有限**。`tm_infra/tools/piece_gen/gen_realtime_pieces.py` 当前生成实时模式的 `ActionCore`、`MultiActionCore`、`ThreadedHandler` 三个文件（每族 2–20 路）；后者实际为 `ExecHandler` 特化。前两族模板为同目录 `ActionCore.hpp.in`、`MultiActionCore.hpp.in`，handler 由脚本构造。其余片段的生成器仍未入库，不能把三族生成器当作全部 52 个片段的统一生成器。
+
+在 tm_infra 根目录运行 `python3 tools/piece_gen/gen_realtime_pieces.py --check` 可只读校验；省略 `--check` 重新写入三族，依赖 `clang-format` 按仓库格式化。修改这三族应改模板 / 脚本后再生成，不应逐个手改产物。
+
 ## 存疑
 
-- **生成器本身不在本仓库中**。`tm_infra/src/` 下只有四个 `.cpp`（`AppHeaders.cpp`、`ChronoUtils.cpp`、`GraphStructureBasedResourceHolderComponent.cpp`、`PidUtil.cpp`），没有脚本，`tm_infra/` 顶层也没有。所以"这些文件是机器生成的"这一判断依据是其形态——高度规整的重复、元数从 2 递增到 20、同一段逻辑在 50 个文件里逐字重复——而非找到了生成器。想新增元数或修改生成逻辑的人需要先找到或重写生成器。
 - **`RequireMask` / `FanInParamMask` 在本仓库中无定义**。`tm_examples/transport_utils/historical_republisher.cpp:295` 用了它们，但对 `tm_infra`、`tm_basic`、`tm_transport` 全量 grep 都搜不到定义，而 `LiftParameters`（`WithTimeData.hpp:49`）只有 `SuggestThreaded` / `DelaySimulator` / `FireOnceOnly` 三个 setter。该示例文件应当编译不过，或对应了仓库之外的版本。照抄这一行会失败。`merge2` 的 `requireMask` 参数（`std::bitset<N>`）是真实存在的，概念相近，可作替代参考。
 
 ## 相关章节
@@ -358,4 +363,5 @@ infra::DeclarativeGraph<R>("", {
 - [05-app-runner.md](05-app-runner.md) —— `actionAsSink` / `connect` / `execute` 与 finalize 时的连接校验
 - [06-declarative-graph.md](06-declarative-graph.md) —— 用位置索引代替数字后缀
 - [07-time-and-data.md](07-time-and-data.md) —— `LiftParameters`、`InnerData`、`TimeChecker` 的语义
+- [10-realtime-executors.md](10-realtime-executors.md) —— `ExecHandler` 与公开 `ThreadedHandler` 包装
 - [../GLOSSARY.md](../GLOSSARY.md) —— 术语表

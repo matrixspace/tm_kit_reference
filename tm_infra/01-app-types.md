@@ -43,18 +43,18 @@ using R = infra::AppRunner<M>;
 
 | 维度 | RealTimeApp | SinglePassIterationApp | TopDownSinglePassIterationApp | BasicWithTimeApp |
 |---|---|---|---|---|
-| 定义位置 | `RealTimeApp.hpp:781` | `SinglePassIterationApp.hpp:58` | `TopDownSinglePassIterationApp.hpp:81` | `BasicWithTimeApp.hpp:15` |
-| 文件行数 | 4005 | 3972 | 3570 | 970 |
-| `PossiblyMultiThreaded` | `true`（`:679`） | `false`（`:63`） | `false`（`:93`） | `false`（`:20`） |
-| `CannotHaveLoopEvenWithFacilities` | `false`（`:680`） | `false`（`:64`） | `false`（`:94`） | `false`（`:21`） |
+| 定义位置 | `RealTimeApp.hpp:716` | `SinglePassIterationApp.hpp:59` | `TopDownSinglePassIterationApp.hpp:81` | `BasicWithTimeApp.hpp:15` |
+| 文件行数 | 3976 | 3973 | 3570 | 970 |
+| `PossiblyMultiThreaded` | `true`（`:722`） | `false`（`:63`） | `false`（`:93`） | `false`（`:20`） |
+| `CannotHaveLoopEvenWithFacilities` | `false`（`:723`） | `false`（`:64`） | `false`（`:94`） | `false`（`:21`） |
 | 时钟要求 | `PreserveInputRelativeOrder == false` | `== true`（模板约束，`:57`） | `== true`（模板约束，`:81`） | 无约束 |
 | 时间推进 | 挂钟（或加速/对齐后的虚拟挂钟） | 数据时间戳，拉取式 | 数据时间戳，推送式 | 不推进，只走类型 |
 | 执行驱动 | importer 自己的线程推送 | 从终端 exporter **反向拉取**（`poll()` / `next()`） | 从 importer **正向推送**，全局任务优先队列排序 | 不执行 |
-| `finalize()` 行为 | 启动所有 `IExternalComponent` 后**立即返回**（`RealTimeApp.hpp:3510`） | 启动后在 `while (env->running())` 里轮询多路复用器直到 final 标记（`SinglePassIterationApp.hpp:3538`） | 启动后在 `while (env->running())` 里反复 `runOneStep(env)`（`TopDownSinglePassIterationApp.hpp:3132`） | 返回空 lambda，什么都不做（`BasicWithTimeApp.hpp:786`） |
+| `finalize()` 行为 | 启动所有 `IExternalComponent` 后**立即返回**（`RealTimeApp.hpp:3373`） | 启动后在 `while (env->running())` 里轮询多路复用器直到 final 标记（`SinglePassIterationApp.hpp:3539`） | 启动后在 `while (env->running())` 里反复 `runOneStep(env)`（`TopDownSinglePassIterationApp.hpp:3132`） | 返回空 lambda，什么都不做（`BasicWithTimeApp.hpp:786`） |
 | `finalize()` 返回后 | 图仍在后台跑，必须靠 `terminationController` 阻塞住 main | 图已跑完 | 图已跑完 | 无所谓 |
 | `AppClassification` | `RealTime` | `SinglePass` | `TopDown` | `Empty` / `BasicWithTime` | 
-| 互斥保护 | 节点内部有 `std::mutex` | 无（单线程，源码注释明示：`SinglePassIterationApp.hpp:55`） | 无 | 无 |
-| `LiftParameters::suggestThreaded` | 生效（决定节点是否独占线程） | 忽略 | 忽略 | 忽略 |
+| 互斥保护 | 节点内部有 `std::mutex` | 无（单线程，源码注释明示：`SinglePassIterationApp.hpp:56`） | 无 | 无 |
+| `LiftParameters::suggestThreaded` | 生效（基于 handler 的节点选择 Environment 执行器；默认专用线程） | 忽略 | 忽略 | 忽略 |
 | `LiftParameters::delaySimulator` | 忽略 | 生效（模拟逻辑耗时） | 生效 | 忽略 |
 | 隐藏时间依赖 | 不涉及 | 不涉及 | 默认开启，可用 `NoHiddenTimeDependencyComponent` 关闭（`:84`） | 不涉及 |
 | 典型用途 | 实时交易、实时风控、服务进程 | 回测（较早的实现） | **回测（推荐）** | CI 里的类型检查 + 出图 |
@@ -77,7 +77,7 @@ using R = infra::AppRunner<M>;
 这是"业务代码可复用"的基础：四个 app type 都导出同一组类型别名，名字与含义完全一致。
 
 ```cpp
-// 来源：tm_infra/tm_kit/infra/RealTimeApp.hpp:794（SinglePassIterationApp.hpp:67、
+// 来源：tm_infra/tm_kit/infra/RealTimeApp.hpp:729（SinglePassIterationApp.hpp:68、
 // TopDownSinglePassIterationApp.hpp:97、BasicWithTimeApp.hpp:24 处的代码逐字相同）
 using TimePoint = typename StateT::TimePointType;
 using Duration = decltype(TimePoint{} - TimePoint{});
@@ -91,7 +91,7 @@ template <class A, class B>
 using KeyedData = KeyedData<A,B,StateT>;
 ```
 
-源码注释解释了为什么这段代码在四个文件里重复而不是提取到公共头：模板继承有问题，直接复制反而更省事（`tm_infra/tm_kit/infra/RealTimeApp.hpp:792`）。
+源码注释解释了为什么这段代码在四个文件里重复而不是提取到公共头：模板继承有问题，直接复制反而更省事（`tm_infra/tm_kit/infra/RealTimeApp.hpp:727`）。
 
 因此 `M::liftPure<...>`、`M::enhancedMaybe2<...>`、`M::liftPureOnOrderFacility<...>`、`M::Importer<T>`、`M::KeyedData<A,B>` 这类写法在四个模式下都成立——这就是业务代码能原样复用的原因。
 
@@ -163,23 +163,23 @@ using M = infra::BasicWithTimeApp<TheEnvironment>;
 
 ### RealTimeApp
 
-多线程。每个节点可能跑在自己的线程上，由 `LiftParameters::suggestThreaded` 决定（`tm_infra/tm_kit/infra/WithTimeData.hpp:51`）。节点内部的 `ThreadedHandler` 负责排队与线程切换。
+多线程。基于 handler 的节点由 `LiftParameters::suggestThreaded` 选择 `InlinePolicy` 或 `ThreadedPolicy`，后者按 Environment 选择执行器，默认是 mutex/list 的 `DedicatedThreadExecutor`；可选 basic SharedPool / Moodycamel，也可显式选择 Inline。并非所有 importer / exporter 都独占线程：普通 exporter 默认同步，`simpleImporter` 等自带线程的实现也不经过该执行器扩展点。详见 [实时 handler 与可替换执行器](10-realtime-executors.md)。
 
-`finalize()` 只做一件事：遍历三组 `IExternalComponent` 调它们的 `start(env)`，然后返回（`tm_infra/tm_kit/infra/RealTimeApp.hpp:3510`）。图从此在后台自行运转，所以 main 函数必须用 `infra::terminationController(...)` 阻塞住，否则进程立刻退出。
+`finalize()` 只做一件事：遍历三组 `IExternalComponent` 调它们的 `start(env)`，然后返回（`tm_infra/tm_kit/infra/RealTimeApp.hpp:3373`）。图从此在后台自行运转，所以 main 函数必须用 `infra::terminationController(...)` 阻塞住，否则进程立刻退出。
 
-`finalizeForInterleaving()` 返回的 stepper 恒为 `return false`，源码注释说明了原因：实时模式下动作都在各自线程上，stepper 无事可做（`tm_infra/tm_kit/infra/RealTimeApp.hpp:3537`）。
+`finalizeForInterleaving()` 返回的 stepper 恒为 `return false`，源码注释说明了原因：实时模式由推送和节点执行上下文驱动，stepper 无事可做（`tm_infra/tm_kit/infra/RealTimeApp.hpp:3400`）。
 
-#### RealTimeApp 特有的两个环境标记与异常类型（`RealTimeApp.hpp:24`–`:31`）
+#### RealTimeApp 特有的两个环境标记与异常类型（`RealTimeApp.hpp:25`–`:31`）
 
 ```cpp
-// :22 — 前向声明（定义在 SynchronousRunner.hpp）
+// :25 — 前向声明（定义在 SynchronousRunner.hpp）
 template <class M> class SynchronousRunner;
 
-// :26 — 空标记类：放进 Environment 后，各线程化节点会周期性把线程输入缓冲区的
-//       当前长度以 LogLevel::Debug 打到日志里（见 :147、:244、:2486）
+// :29 — 空标记类：放进 Environment 后，各线程化节点会周期性把线程输入缓冲区的
+//       当前长度以 LogLevel::Debug 打到日志里（由 handler 按批次报告）
 class OutputRealTimeThreadBufferSizeComponent {};
 
-// :28 — RealTimeApp 抛出的异常类型
+// :31 — RealTimeApp 抛出的异常类型
 class RealTimeAppException : public std::runtime_error {
 public:
     RealTimeAppException(std::string const &s) : std::runtime_error(s) {}
@@ -192,11 +192,11 @@ public:
 
 ### SinglePassIterationApp
 
-单线程，**拉取式**。源码顶部注释："Nothing in this monad is mutex protected because it is supposed to run single-threaded"（`tm_infra/tm_kit/infra/SinglePassIterationApp.hpp:55`）。
+单线程，**拉取式**。源码顶部注释："Nothing in this monad is mutex protected because it is supposed to run single-threaded"（`tm_infra/tm_kit/infra/SinglePassIterationApp.hpp:56`）。
 
-核心接口是 `poll()` 与 `next(Certificate<T> &&cert)`（`tm_infra/tm_kit/infra/SinglePassIterationApp.hpp:199`）。注释写明："The assumption is that next() will ONLY be called if poll() ..."（`:192`）——先 poll 确认有数据可取，再 next 真正取走。数据沿图**反向**被拉。
+核心接口是 `poll()` 与 `next(Certificate<T> &&cert)`（`tm_infra/tm_kit/infra/SinglePassIterationApp.hpp:200`）。注释写明："The assumption is that next() will ONLY be called if poll() ..."（`:192`）——先 poll 确认有数据可取，再 next 真正取走。数据沿图**反向**被拉。
 
-`finalize()` 把所有终端 exporter 汇聚成一个 `InputMultiplexer`，在 `while (env->running())` 里反复 poll/next，遇到 `finalFlag` 就 break（`tm_infra/tm_kit/infra/SinglePassIterationApp.hpp:3538`）。
+`finalize()` 把所有终端 exporter 汇聚成一个 `InputMultiplexer`，在 `while (env->running())` 里反复 poll/next，遇到 `finalFlag` 就 break（`tm_infra/tm_kit/infra/SinglePassIterationApp.hpp:3539`）。
 
 ### TopDownSinglePassIterationApp
 
@@ -257,7 +257,7 @@ class TopDownSinglePassIterationApp {
 
 `PreserveInputRelativeOrder` 由时钟组件提供：`basic/real_time_clock/ClockComponent.hpp:18` 是 `false`，`basic/single_pass_iteration_clock/ClockComponent.hpp:14` 与 `basic/empty_clock/ClockComponent.hpp:14` 是 `true`。所以**拿实时时钟配单遍迭代 app 会直接编不过**——这是好事，错误在编译期就被挡住了。反过来 `RealTimeApp` 没这个约束。
 
-**`CheckTimeComponent` 的取值通常相反。** 看锚点文件：实时用 `CheckTimeComponent<false>`（`MainLogic.cpp:41`），回测用 `CheckTimeComponent<true>`（`:192`）。回测时数据应当严格按时间顺序，所以打开时间倒流检查；实时时数据来自网络，轻微的时间乱序是常态，开检查会丢数据。
+**`CheckTimeComponent` 的取值通常相反。** 看锚点文件：实时用 `CheckTimeComponent<false>`（`MainLogic.cpp:41`），回测用 `CheckTimeComponent<true>`（`:192`）。回测时数据应当严格按时间顺序，所以打开时间倒流检查；实时时数据来自网络，轻微的时间乱序是常态，开检查会丢数据。以上是示例的显式配置；当前 `CheckTimeComponent<>` 和缺少 `CheckTime` 成员的 Environment 在三种可执行 App 中都默认关闭时间检查。回测需要拒绝时间倒退时须显式选 `<true>`；版本检查始终生效。
 
 **退出控制组件通常也不同。** 实时用 `TrivialExitControlComponent`（`running()` 恒 true，`exit()` 调 `std::exit`），回测用 `FlagExitControlComponent`（`running()` 读 atomic 标志）。原因：回测的 `finalize()` 里有 `while (env->running())` 主循环，需要一个能真的翻成 false 的标志才能优雅收尾。
 
@@ -279,5 +279,6 @@ class TopDownSinglePassIterationApp {
 - [07-time-and-data.md](07-time-and-data.md) —— `LiftParameters`、`WithTime`、final 标记
 - [08-runners-and-control.md](08-runners-and-control.md) —— `terminationController` 与 `SynchronousRunner`
 - [09-generated-pieces.md](09-generated-pieces.md) —— 四个 app type 各自的生成片段
+- [10-realtime-executors.md](10-realtime-executors.md) —— 执行器选择、线程语义及兼容接口
 - [../tm_basic/01-clocks.md](../tm_basic/01-clocks.md) —— 四套时钟组件与 `PreserveInputRelativeOrder`
 - [../GLOSSARY.md](../GLOSSARY.md) —— 术语表

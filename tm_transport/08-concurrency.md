@@ -23,7 +23,9 @@ keywords: [并发, 线程安全, thread safety, 多进程, 多线程, 多写者,
 2. **心跳 / 告警与数据共用 locator**。`HeartbeatAndAlertComponentInitializer` 对同一 locator 调 `xxx_getPublisher`（`tm_transport/tm_kit/transport/HeartbeatAndAlertComponent.hpp:218`）。大部分组件按 locator（或其一部分）复用 sender，心跳在时钟 importer 线程发布，`sendAlert` 可来自任意线程，publisher 调用本身不加锁（`tm_transport/src/HeartbeatAndAlertComponent.cpp:56`、`:82`）。
 3. **同进程两个 exporter 指向同一信道**。
 
-图内的情况 1 可以用 `oneBroadcastPublisher(..., threaded=true)` 解决：它在 exporter 前插入一个 threaded 的 id kleisli，把所有上游串行到一个线程。**它管不到情况 2**。
+图内的情况 1 可以用 `oneBroadcastPublisher(..., threaded=true)` 解决：它在 exporter 前插入一个 threaded 的 id kleisli，默认把所有上游串行到专用线程；选 SharedPool 时是同一 strand，仍串行但不固定线程。显式选 Inline 则不能据此保证串行。**它管不到情况 2**。
+
+上述 `threaded=true` 的串行化结论适用于默认 Dedicated 和保证 `kSerialCallbacks=true` 的执行器。handler 扩展点也影响 gRPC / JSON REST 客户端的请求处理上下文，不替换传输组件自身的 IO 线程；并发矩阵中的客户端安全结论不能直接推广到自定义非串行执行器。见 [实时执行器参考](../tm_infra/10-realtime-executors.md)。本次合并只增加 / 调整 transport 回归测试，没有修改传输协议实现；本轮文档同步未重跑网络测试。
 
 ## 广播传输并发矩阵
 
@@ -271,7 +273,7 @@ keywords: [并发, 线程安全, thread safety, 多进程, 多线程, 多写者,
 ### grpc_interop
 
 - **多 server 进程**：绑定 `[::]:port`。gRPC 在 Linux 上默认开启 `SO_REUSEPORT`（库行为，代码中不可见，未实测），多进程可能**静默地同时绑定同一端口**并由内核分流请求；代码未设置 `GRPC_ARG_ALLOW_REUSEPORT=0`。`BuildAndStart()` 的返回值未判空（`tm_transport/src/grpc_interop/GrpcInteropComponent.cpp:288`、`:298`），绑定失败会在 detached 线程里解引用空指针。
-- **client 多线程调用**：client facility 是 `ThreadedHandler`，请求在单线程队列中处理；channel 按 `host:port` 共享（`grpc::Channel` 线程安全）。安全。
+- **client 多线程调用**：client facility 是 `ThreadedHandler`，默认在专用线程串行处理；SharedPool 保留单节点回调串行，Moodycamel 不保证跨生产者全局 FIFO，显式 Inline 则可能并发进入；channel 按 `host:port` 共享（`grpc::Channel` 线程安全）。安全。
 - **server**：gRPC callback API，内部线程池并发处理；回复经 reactor 自身锁 + 队列串行 `StartWrite`，任意线程回复安全。
 - 陷阱：`finalizeEnvironment` 之后往已有端口注册新 service 不会生效，也不报错；同一 locator 第二次 `setRPCClient` 复用第一个 sender 及其回调，新回调被忽略。
 

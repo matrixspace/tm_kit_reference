@@ -59,6 +59,15 @@ keywords: [术语, glossary, 中英对照, importer, exporter, action, facility]
 | app runner | AppRunner | 负责注册节点、连接、校验、输出 Graphviz、启动图的对象 |
 | touchup | touchup | 延迟到 finalize 阶段执行的图修补回调 |
 
+## 实时执行器
+
+| 英文 | 中文 | 说明 |
+|---|---|---|
+| executor | 执行器 | 决定 handler 回调在调用线程、专用线程还是共享池中执行，见 [执行器参考](tm_infra/10-realtime-executors.md) |
+| strand | 串行执行单元 | 共享池中单个节点的回调互斥执行，不保证固定 OS 线程 |
+| per-producer FIFO | 每生产者先进先出 | 同一生产者的消息保序；不等于跨生产者全局 FIFO |
+| MPSC | 多生产者单消费者 | multiple-producer single-consumer 队列；SharedPool 的节点队列采用此模型 |
+
 ## 序列化与结构反射
 
 | 英文 | 中文 | 说明 |
