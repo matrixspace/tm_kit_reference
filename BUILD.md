@@ -177,6 +177,23 @@ pkg-config --cflags tm_kit_basic_debug
 pkg-config --libs   tm_kit_basic_debug | tr ' ' '\n' | head -20
 ```
 
+### 可选功能开关
+
+tm_basic 的两个可选特性各有一个 Meson feature 选项，默认 `auto`（探测到依赖就启用）：
+
+| 选项 | 依赖 | 关闭后的影响 |
+|---|---|---|
+| `moodycamel_executor` | concurrentqueue（header-only） | 不声明 `MoodycamelThreadedExecutor`；`tm_basic` 的测试与基准目标跳过 |
+| `hwloc_cpu_allocator` | hwloc | 不声明 `HwlocThreadCpuAllocator`；`hwloc_cpu_allocator_test` 目标跳过 |
+
+```bash
+meson setup builddir --buildtype=release -Dhwloc_cpu_allocator=disabled
+```
+
+`build.sh` 只传 `--buildtype`、`--prefix` 和 `--cmake-prefix-path`，不能设置这些选项；需要覆盖时用 `meson setup` 手动配置。依赖存在但想强制关闭时用 `disabled`，缺少依赖但要求启用时用 `enabled`（缺失会直接报错）。
+
+下游使用 `HwlocThreadCpuAllocator` 时需在自己的 meson 里显式引入 `dependency('hwloc')`——tm_basic 的 `.pc` 不传递该依赖，未使用该功能的下游不受影响。
+
 ## 7. 编译开销
 
 **gRPC + Abseil + protobuf 是编译时间与日志体积的主要来源。** debug 构建日志可达 ~1 GB，主因是这两个库的模板实例化与弃用警告。

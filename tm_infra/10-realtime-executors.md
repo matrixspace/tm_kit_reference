@@ -103,8 +103,11 @@ SharedPool 的 strand（串行执行单元）允许节点在不同池线程之�
 struct ThreadedNodeOptions {
     std::optional<std::chrono::nanoseconds> spinWait; // 空 = 保持执行器默认
     std::vector<int> cpus;                            // 空 = 保持现有绑核
+    std::optional<CpuAutoBindRequest> cpuAutoBind;     // 自动选核，见下节
     ThreadedNodeOptions &SpinWait(std::chrono::nanoseconds);
     ThreadedNodeOptions &Cpus(std::vector<int>);
+    ThreadedNodeOptions &CpuAutoBind();               // 全局自动选核
+    ThreadedNodeOptions &CpuAutoBindOnNuma(int node); // 限定 NUMA 节点
 };
 ```
 
@@ -125,6 +128,72 @@ M::configureThreadedNode(action, ThreadedNodeOptions()
 - **SharedPool 仍是池级**：它的 `spinWait` 与 `cpus` 在 `SharedThreadPoolConfig` 中配置，节点级调用返回 `false` 且不报错。
 
 扩展点：执行器只要提供 `bool configure(ThreadedNodeOptions const &)` 就自动被框架识别，无需改 `RealTimeApp`；没有该成员的执行器被视为不支持。
+
+### 自动绑核（CpuAutoBind）
+
+手工 `Cpus()` 要求调用者自己理解 taskset/numactl 限制、SMT 兄弟和 NUMA 布局。`CpuAutoBind()` 把这些交给框架：为忙线程（包括 busy-loop 线程）挑一个最优 CPU（`tm_infra/tm_kit/infra/RealTimeThreadedExecutor.hpp`）。
+
+```cpp
+M::configureThreadedNode(node, ThreadedNodeOptions().CpuAutoBind());            // 由框架挑核
+M::configureThreadedNode(node, ThreadedNodeOptions().CpuAutoBindOnNuma(1));     // 只在 NUMA 节点 1 内挑
+```
+
+参数是 **NUMA 节点，不是 CPU 号**。要固定到具体 CPU 用 `Cpus()`；自动模式只约束“在哪个范围里挑”，具体用哪个核（避开 SMT 兄弟、节点首核、第三方占用的核）由框架决定。`Cpus()` 与 `CpuAutoBind*` 同时给出会抛 `std::invalid_argument`。
+
+**分配规则**
+
+1. 可用 PU = `hwloc_get_cpubind(PROCESS)` ∩ `hwloc_topology_get_allowed_cpuset`，因此 taskset、`numactl --physcpubind/--cpunodebind` 和 cgroup cpuset 都会被遵守。
+2. 以物理核为单位分配，一个核只给一个忙线程。默认 `SmtPolicy::RequireFullCore` 要求核的所有 PU 都可用；`AllowPartialCore` 放松这一点。
+3. 每个 NUMA 节点的**首核**默认避开（`avoidFirstCoreOfNumaNode`）：它承载该节点的中断与内核杂务。
+4. `excludeCpus` 是避让列表，按**整个物理核**生效——第三方库在 CPU X 上忙时，X 的 SMT 兄弟也不会被分配。
+5. NUMA 选择默认“集中”：先留在已有自动分配、且仍有空闲核的节点；其次是线程 membind 为 BIND 策略时指定的节点；最后按空闲核数排序。`CpuAutoBindOnNuma(n)` 只在节点 n 内挑。
+6. 显式 `Cpus()` 在挂了分配器的 Environment 里会被登记为预留，自动分配会避开；与已自动分配的 CPU 冲突时报错。
+
+**失败一律抛异常**，不静默降级：没有可用核、NUMA 节点不存在或不可用、`excludeCpus` 写了不可用或不存在的 CPU、节点没有专用线程（Inline、SharedPool）等，都会抛出带诊断的异常（列出可用 PU、被排除的核、已分配 CPU 等）。这与 spinWait/`Cpus()` “不支持就返回 false”的约定不同。
+
+**分层**：infra 只提供扩展点，保持零第三方依赖——
+
+```cpp
+class IThreadCpuAllocator {             // infra
+    virtual int acquire(CpuAutoBindRequest const &, std::string const &who) = 0;
+    virtual void reserve(std::vector<int> const &cpus, std::string const &who) = 0;
+    virtual void release(std::vector<int> const &cpus) noexcept = 0;
+};
+template <class Access> struct ThreadCpuAllocatorComponent; // Environment 组件
+```
+
+hwloc 实现在 basic（`tm_basic/tm_kit/basic/HwlocThreadCpuAllocator.hpp`，可选）：
+
+```cpp
+struct Env : ..., basic::HwlocThreadCpuAllocatorComponent {};
+
+basic::HwlocThreadCpuAllocator::configure(basic::HwlocCpuAllocatorConfig{
+    .excludeCpus = {8, 9},       // 第三方库已占用的 CPU（整核避让）
+});
+```
+
+`configure()` 必须在首次使用前调用，之后再调用抛 `std::logic_error`（与 `SharedThreadPool::configure` 相同）。头文件用 `__has_include(<hwloc.h>)` 探测；下游启用该功能需自己链接 hwloc（pkg-config 名 `hwloc`），tm_basic 的 `.pc` 不要求它。未挂载分配器组件就调用 `CpuAutoBind()` 时，节点会抛异常并提示需要的组件。
+
+### 自写线程复用绑核（ThreadCpuLease）
+
+自己创建的线程（例如自写 importer 的收包线程）可以复用同一个分配器，从而与图节点共享“不抢同一个核”的保证：
+
+```cpp
+void run() {   // 自己线程函数的第一行
+    auto lease = infra::ThreadCpuLease::bindCurrentThread<Env>("nic-rx");
+    // auto lease = infra::ThreadCpuLease::bindCurrentThreadOnNuma<Env>(1, "nic-rx");
+    // auto lease = infra::ThreadCpuLease::bindCurrentThreadTo<Env>({20}, "legacy");
+    // ... 忙循环 ...
+}   // 正常返回或抛异常退出都会归还 CPU
+```
+
+- 三个入口各有独立名字，分别对应全局自动、限定 NUMA 节点、手工指定 CPU；也都有接收 `IThreadCpuAllocator &` 的重载。
+- 只作用于**调用线程**，所以在线程函数里直接调用即可，不依赖线程句柄，也不存在句柄失效问题。
+- RAII：租约可移动、不可拷贝；析构、`reset()` 或移动赋值时归还 CPU。
+- 失败一律抛 `ThreadCpuBindError`；Environment 没有分配器组件时 `static_assert` 编译失败。
+- **多线程安全**：选核在分配器内部加锁，每个线程只改自己的亲和性，任意多个线程可同时调用。同一线程同时只能持有一个 `bindCurrentThread*` 租约，再次绑定会抛异常，避免一个线程悄悄占两个核。单个租约对象本身不应被两个线程同时操作（与标准库对象一致）。
+
+图节点内部的租约（`ThreadCpuLease::adopt`）与用户线程共用同一套归还逻辑；节点析构时先 join 线程再归还 CPU。
 
 ### SharedPool：显式选择与进程级配置
 
@@ -204,7 +273,9 @@ class ThreadedHandler : public ExecHandler<T, W, ThreadedPolicy> {};
 
 ## 第三方依赖
 
-infra 的 Inline / Dedicated 以及 basic 的 SharedPool 只使用标准库（绑核使用 Linux API）；Moodycamel 适配器可选依赖 [concurrentqueue](https://github.com/cameron314/concurrentqueue)。它不会成为 tm_infra 的依赖。
+infra 的 Inline / Dedicated 以及 basic 的 SharedPool 只使用标准库（绑核使用 Linux API）；Moodycamel 适配器可选依赖 [concurrentqueue](https://github.com/cameron314/concurrentqueue)。它们都不会成为 tm_infra 的依赖。
+
+自动绑核：infra 只提供扩展点（零依赖）；hwloc 实现属于 basic 的可选功能，依赖 [hwloc](https://www.open-mpi.org/projects/hwloc/)（vcpkg port 名 `hwloc`）。tm_basic 通过 Meson feature 选项 `hwloc_cpu_allocator`（`auto` 探测）决定是否可用；未安装时相关测试目标被跳过，公共头文件仍会安装但不声明执行器类型。
 
 ## 相关章节
 
