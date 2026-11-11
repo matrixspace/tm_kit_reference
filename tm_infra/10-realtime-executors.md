@@ -72,6 +72,7 @@ struct RealTimeThreadedExecutorComponent {
 | `stop()` | 非阻塞，允许在回调内调用；不保证排空待处理数据 |
 | `wakeIdle()` | host 的 idle 状态变化后唤醒执行器 |
 | `threadHandle()` | 返回 `std::optional<std::thread::native_handle_type>` |
+| `bool configure(ThreadedNodeOptions const &)` | **可选**。逐节点 spinWait / 绑核；没有该成员时框架按不支持处理，返回 false 且不报错 |
 
 host 适配器提供 `executorWaitForStart()`、`executorHandle(...)`、`executorIdleWork()`、`executorHasIdleWork()`、`executorBeforeBatch(...)`。Inline 不调用启动等待或 idle 回调。异步执行器的 idle 只在没有待处理数据时运行。
 
@@ -79,12 +80,12 @@ host 适配器提供 `executorWaitForStart()`、`executorHandle(...)`、`executo
 
 ### 四种实现的差异
 
-| 执行器 | 每节点上下文 | 同一 host 回调串行 | 跨生产者全局 FIFO | `threadHandle()` |
-|---|---|---|---|---|
-| `infra::InlineExecutor<Item>` | 无，直接在调用线程执行 | 否，多生产者可并发进入 | 无串行队列 | `nullopt` |
-| `infra::DedicatedThreadExecutor<Item, Config>` | 一条专用线程，默认 | 是 | 保留 mutex 入队线性化顺序 | 原生线程句柄 |
-| `basic::RealTimeSharedPoolExecutor<Item>` | 进程共享池，每节点一个 strand | 是，同一节点回调不重叠 | 保留该节点 MPSC 入队线性化顺序 | `nullopt` |
-| `basic::MoodycamelThreadedExecutor<Item, Config>` | 一条专用线程，可选 | 是 | **不保证**，仅每生产者 FIFO | 原生线程句柄 |
+| 执行器 | 每节点上下文 | 同一 host 回调串行 | 跨生产者全局 FIFO | `threadHandle()` | 逐节点 spinWait / 绑核 |
+|---|---|---|---|---|---|
+| `infra::InlineExecutor<Item>` | 无，直接在调用线程执行 | 否，多生产者可并发进入 | 无串行队列 | `nullopt` | 忽略，返回 false |
+| `infra::DedicatedThreadExecutor<Item, Config>` | 一条专用线程，默认 | 是 | 保留 mutex 入队线性化顺序 | 原生线程句柄 | 绑核生效；spinWait 忽略；析构 join |
+| `basic::RealTimeSharedPoolExecutor<Item>` | 进程共享池，每节点一个 strand | 是，同一节点回调不重叠 | 保留该节点 MPSC 入队线性化顺序 | `nullopt` | 忽略，返回 false（用池级配置） |
+| `basic::MoodycamelThreadedExecutor<Item, Config>` | 一条专用线程，可选 | 是 | **不保证**，仅每生产者 FIFO | 原生线程句柄 | spinWait 与绑核均生效；析构 join |
 
 SharedPool 的 strand（串行执行单元）允许节点在不同池线程之间迁移，不能依赖 per-node `thread_local`、固定线程 ID 或逐节点绑核。不同节点仍可并发；两个节点共享业务状态时仍需同步。阻塞 IO、长时间重试或等待启动屏障会占住池线程，应保留专用线程。
 
@@ -92,7 +93,38 @@ SharedPool 的 strand（串行执行单元）允许节点在不同池线程之�
 
 定义见 `tm_infra/tm_kit/infra/RealTimeThreadedExecutor.hpp:100`。生产者在 mutex 下追加 `std::list<Item>`，消费者把整批 `splice` 到本地处理列表。等待带 predicate：若处理期间又有数据入队，下一轮立即处理，不再无条件白等 1ms。这项修复针对该执行器；未覆盖自带线程的 trigger / bunched / simple importer 的其他等待路径。
 
-`DedicatedThreadExecutorConfig::idlePeriod` 默认 1ms；保持历史周期 idle 行为，即使 `executorHasIdleWork()` 为 false 仍周期回调。默认实现忽略 `ThreadedExecOptions::spinWait` 和 `Config::spinBeforeSleep`，不能用这些字段让默认执行器忙等。
+`DedicatedThreadExecutorConfig::idlePeriod` 默认 1ms；保持历史周期 idle 行为，即使 `executorHasIdleWork()` 为 false 仍周期回调。默认实现忽略 `ThreadedExecOptions::spinWait`、逐节点 `ThreadedNodeOptions::spinWait` 和 `Config::spinBeforeSleep`，不能用这些字段让默认执行器忙等；逐节点绑核则生效（见下节「逐节点 spinWait 与绑核」）。
+
+### 逐节点 spinWait 与绑核
+
+同一张图里不同节点的实时性要求往往不同：关键路径节点值得多自旋，低频节点应尽快睡下。`ThreadedNodeOptions` 让每个 threaded 节点在**图启动前**单独配置（`tm_infra/tm_kit/infra/RealTimeThreadedExecutor.hpp:141`）：
+
+```cpp
+struct ThreadedNodeOptions {
+    std::optional<std::chrono::nanoseconds> spinWait; // 空 = 保持执行器默认
+    std::vector<int> cpus;                            // 空 = 保持现有绑核
+    ThreadedNodeOptions &SpinWait(std::chrono::nanoseconds);
+    ThreadedNodeOptions &Cpus(std::vector<int>);
+};
+```
+
+调用点在 `RealTimeApp` 的静态函数，和 `threadHandle(node)` 同一形状（`tm_infra/tm_kit/infra/RealTimeApp.hpp:3122`）：
+
+```cpp
+M::configureThreadedNode(action, ThreadedNodeOptions()
+    .SpinWait(std::chrono::microseconds(100))
+    .Cpus({20, 21}));   // 节点创建之后、r.finalize() 之前
+```
+
+语义要点：
+
+- **时机**：节点在线构造时线程就已启动，所以这是“设置”，不是“启动参数”。绑核立即作用于已运行的线程；Moodycamel 的 spinWait 从消费者下一次等待起生效。没有要求在运行中动态调整。
+- **返回值**：`true` 表示执行器接受了设置。Dedicated 按约定忽略 spinWait 但仍返回 `true`；`false` 表示节点非 threaded（Inline）、执行器不支持（SharedPool、旧的自定义执行器），或 CPU 号无效 / 设置亲和性失败。CPU 号无效时整个调用都不生效，原绑核与 spinWait 保持不变。
+- **空 `cpus`** 不会清除已有绑核。要改变绑核，给出非空集合。
+- **自旋预算是每节点的**：`ThreadedNodeOptions::spinWait` 覆盖该节点执行器的默认值，互不影响。
+- **SharedPool 仍是池级**：它的 `spinWait` 与 `cpus` 在 `SharedThreadPoolConfig` 中配置，节点级调用返回 `false` 且不报错。
+
+扩展点：执行器只要提供 `bool configure(ThreadedNodeOptions const &)` 就自动被框架识别，无需改 `RealTimeApp`；没有该成员的执行器被视为不支持。
 
 ### SharedPool：显式选择与进程级配置
 
@@ -125,7 +157,7 @@ class MoodycamelThreadedExecutor;
 
 Environment 选择组件是 `basic::MoodycamelThreadedExecutorComponent`（同一头文件 `:289`）。示例代码库中暂无用例；实际集成与并发场景在 `tm_basic/test/moodycamel_executor_test/`。
 
-最终实现融合原 Enhanced 路径，使用可复用块、单消费者 token、八分片发布计数和睡眠握手；不是旧的 `BlockingConcurrentQueue` 加 optional 唤醒 token 实现。块大小为 256。消费者活跃时不为每条消息无条件加通知锁；有 idle work 时按 `Config::idlePeriod` 等待，没有时可阻塞到数据、stop 或 wakeIdle。`ThreadedExecOptions::spinWait` 默认 200µs，是处理后有界主动等待，设为零可关闭；`Config::spinBeforeSleep` 默认零。
+最终实现融合原 Enhanced 路径，使用可复用块、单消费者 token、八分片发布计数和睡眠握手；不是旧的 `BlockingConcurrentQueue` 加 optional 唤醒 token 实现。块大小为 256。消费者活跃时不为每条消息无条件加通知锁；有 idle work 时按 `Config::idlePeriod` 等待，没有时可阻塞到数据、stop 或 wakeIdle。`ThreadedExecOptions::spinWait` 默认 200µs，是处理后有界主动等待，设为零可关闭；`Config::spinBeforeSleep` 默认零。逐节点 `ThreadedNodeOptions::spinWait` 覆盖构造时传入的值，从消费者下一次等待起生效。
 
 **跨生产者全局 FIFO 已放弃。** 开启 `CheckTimeComponent<true>` 后，跨生产者到达的时间戳重排仍可能被时间检查丢弃；即使时间检查关闭，有状态的 `VersionChecker` 仍会拒绝旧版本。不要把默认时间检查关闭理解为关闭版本检查。
 
@@ -166,7 +198,7 @@ class ThreadedHandler : public ExecHandler<T, W, ThreadedPolicy> {};
 ## 易错点
 
 - `kOwnContext` 表示“不同执行上下文”，不等于“节点独占固定 OS 线程”；共享池也返回 true。
-- `stop()` 不是 join 或 drain。Dedicated、Moodycamel 的线程 detached；共享执行器状态的存活不保证 host 存活，host / Environment / 回调访问的资源必须覆盖回调期。SharedPool 的 executor 析构会同步正在运行的 slice（自身回调内析构有专门处理），也不能据此声称整个图可任意安全析构。
+- `stop()` 不是 join 或 drain：它是非阻塞的，也不排空待处理数据。**join 发生在执行器析构**：`DedicatedThreadExecutor` 与 `MoodycamelThreadedExecutor` 在析构中先 `stop()` 再 `join()`，所以显式 `delete` 一个执行器/节点后会等到其线程退出；执行器从自己的回调内被析构时无法自 join，退化为 detach，线程在回调返回后自行退出。其他自带线程的节点（`SimpleImporter`、`BunchedImporter`、`ChainReader`/`ChainWriter`、`CommonFlowUtils` 中的节点、`SharedThreadPool`）仍是 detached。host / Environment / 回调访问的资源必须覆盖回调期。SharedPool 的 executor 析构会同步正在运行的 slice（自身回调内析构有专门处理），也不能据此声称整个图可任意安全析构。
 - 切换 SharedPool 或 Inline 前核对回调里的阻塞、重入与共享状态；原生线程句柄可能不存在。
 - 性能数据依赖负载、CPU 绑定、SMT 与自旋预算，不把历史 benchmark 的单次结果作为 API 保证。
 

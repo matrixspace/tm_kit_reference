@@ -161,7 +161,7 @@ using FullRequestType = std::tuple<IdentityType, Request>;
 - `CommonFlowUtils` 的很多工具有 `useMutex` / `suggestThreaded` 参数，**默认值与 `M::PossiblyMultiThreaded` 一致**——回测下默认不加锁，实时下默认加锁
 - `rightShift` 用了 `static std::deque` 缓冲（`CommonFlowUtils.hpp:1667`），**同一进程内多处调用会共享缓冲区**。每次需要新的右移节点时要重新调用 `rightShift`，不要复用返回值
 
-默认 Dedicated 和可选 Moodycamel 的工作线程 detached；`stop()` 不等于 join 或排空。不能在调用 stop 后立即销毁 host / Environment，并假定没有回调还在访问它们。共享池也只保证同一节点回调互斥，不能自动保护多个节点共享的状态。
+`stop()` 本身不是 join，也不排空待处理数据，它是非阻塞的；但默认 Dedicated 和可选 Moodycamel 的工作线程会在**执行器析构时** stop + join。因此显式销毁执行器/节点后会等到线程退出（从自身回调内析构时退化为 detach），而只调 `stop()` 而不销毁则仍可能有回调在跑。其他自带线程的节点（`simpleImporter`、`BunchedImporter`、ChainReader/ChainWriter、`SharedThreadPool`）仍是 detached，不能假定 stop 后没有回调还在访问 host / Environment。共享池也只保证同一节点回调互斥，不能自动保护多个节点共享的状态。
 
 ### 4.2 `env` 与外部资源的生命周期必须覆盖图
 
