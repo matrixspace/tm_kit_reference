@@ -142,12 +142,12 @@ M::configureThreadedNode(node, ThreadedNodeOptions().CpuAutoBindOnNuma(1));     
 
 **分配规则**
 
-1. 可用 PU = `hwloc_get_cpubind(PROCESS)` ∩ `hwloc_topology_get_allowed_cpuset`，因此 taskset、`numactl --physcpubind/--cpunodebind` 和 cgroup cpuset 都会被遵守。
+1. 可用 PU = `hwloc_get_cpubind(PROCESS)` ∩ `hwloc_topology_get_allowed_cpuset`，因此 taskset、`numactl --physcpubind/--cpunodebind` 和 cgroup cpuset 都会被遵守。拓扑以 `HWLOC_TOPOLOGY_FLAG_INCLUDE_DISALLOWED` 加载，被掩码禁用的 SMT 兄弟仍留在核里，所以“每核只暴露一个 PU”的 cgroup/taskset 掩码在 `RequireFullCore` 下会被判为没有完整核，而不是误当成整核。
 2. 以物理核为单位分配，一个核只给一个忙线程。默认 `SmtPolicy::RequireFullCore` 要求核的所有 PU 都可用；`AllowPartialCore` 放松这一点。
 3. 每个 NUMA 节点的**首核**默认避开（`avoidFirstCoreOfNumaNode`）：它承载该节点的中断与内核杂务。
 4. `excludeCpus` 是避让列表，按**整个物理核**生效——第三方库在 CPU X 上忙时，X 的 SMT 兄弟也不会被分配。
 5. NUMA 选择默认“集中”：先留在已有自动分配、且仍有空闲核的节点；其次是线程 membind 为 BIND 策略时指定的节点；最后按空闲核数排序。`CpuAutoBindOnNuma(n)` 只在节点 n 内挑。
-6. 显式 `Cpus()` 在挂了分配器的 Environment 里会被登记为预留，自动分配会避开；与已自动分配的 CPU 冲突时报错。
+6. 显式 `Cpus()` 在挂了分配器的 Environment 里会被登记为预留，自动分配会避开整核；预留与已自动分配的核冲突时报错，且**按物理核判断**——自动分配了 CPU 2 之后再预留它的 SMT 兄弟 CPU 30 同样报错，隔离保证不依赖配置顺序。预留不可用 CPU 也直接抛异常。
 
 **失败一律抛异常**，不静默降级：没有可用核、NUMA 节点不存在或不可用、`excludeCpus` 写了不可用或不存在的 CPU、节点没有专用线程（Inline、SharedPool）等，都会抛出带诊断的异常（列出可用 PU、被排除的核、已分配 CPU 等）。这与 spinWait/`Cpus()` “不支持就返回 false”的约定不同。
 
@@ -167,12 +167,12 @@ hwloc 实现在 basic（`tm_basic/tm_kit/basic/HwlocThreadCpuAllocator.hpp`，�
 ```cpp
 struct Env : ..., basic::HwlocThreadCpuAllocatorComponent {};
 
-basic::HwlocThreadCpuAllocator::configure(basic::HwlocCpuAllocatorConfig{
-    .excludeCpus = {8, 9},       // 第三方库已占用的 CPU（整核避让）
-});
+basic::HwlocCpuAllocatorConfig cfg;
+cfg.excludeCpus = {8, 9};        // 第三方库已占用的 CPU（整核避让）
+basic::HwlocThreadCpuAllocator::configure(cfg);
 ```
 
-`configure()` 必须在首次使用前调用，之后再调用抛 `std::logic_error`（与 `SharedThreadPool::configure` 相同）。头文件用 `__has_include(<hwloc.h>)` 探测；下游启用该功能需自己链接 hwloc（pkg-config 名 `hwloc`），tm_basic 的 `.pc` 不要求它。未挂载分配器组件就调用 `CpuAutoBind()` 时，节点会抛异常并提示需要的组件。
+`configure()` 必须在首次使用前调用，之后再调用抛 `std::logic_error`（与 `SharedThreadPool::configure` 相同）。头文件用 `__has_include(<hwloc.h>)` 探测；下游启用该功能需自己链接 hwloc（pkg-config 名 `hwloc`），tm_basic 的 `.pc` 不要求它。未挂载分配器组件就调用 `CpuAutoBind()` 时，节点会抛异常并提示需要的组件。首次加载拓扑失败（例如 `excludeCpus` 含不可用或不存在的 CPU）会整体回滚，不留半成品状态；此时分配器仍算“未使用”，可以再次 `configure()` 修正配置后重试。
 
 ### 自写线程复用绑核（ThreadCpuLease）
 
