@@ -2,7 +2,7 @@
 title: 实时 handler 与可替换执行器
 library: tm_infra
 headers: [tm_kit/infra/RealTimeThreadedExecutor.hpp, tm_kit/infra/RealTimeApp.hpp, tm_kit/basic/RealTimeSharedPoolExecutor.hpp, tm_kit/basic/MoodycamelThreadedExecutor.hpp, tm_kit/basic/RealTimeMPSCQueue.hpp, tm_kit/basic/HwlocThreadCpuAllocator.hpp]
-keywords: [ThreadedHandler, ExecHandler, HandlerPolicy, ThreadedPolicy, InlinePolicy, InlineExecutor, DedicatedThreadExecutor, RealTimeThreadedExecutorComponent, RealTimeThreadedExecutorFor, RealTimeSharedPoolExecutor, RealTimeSharedPoolExecutorComponent, SharedThreadPool, SharedThreadPoolConfig, MoodycamelThreadedExecutor, MoodycamelThreadedExecutorComponent, ThreadedExecOptions, ThreadedNodeOptions, configureThreadedNode, configureThread, spinWait, 绑核, Cpus, CpuAutoBind, CpuAutoBindOnNuma, HwlocThreadCpuAllocator, HwlocThreadCpuAllocatorComponent, HwlocCpuAllocatorConfig, ThreadCpuLease, SmtPolicy, hwloc, NUMA, kOwnContext, kSerialCallbacks, wakeIdle, threadHandle, 执行器, 线程池, 共享线程池, 同步执行, FIFO顺序, strand, FIFO, concurrentqueue, moodycamel_executor]
+keywords: [ThreadedHandler, ExecHandler, HandlerPolicy, ThreadedPolicy, InlinePolicy, InlineExecutor, DedicatedThreadExecutor, RealTimeThreadedExecutorComponent, RealTimeThreadedExecutorFor, RealTimeSharedPoolExecutor, RealTimeSharedPoolExecutorComponent, SharedThreadPool, SharedThreadPoolConfig, MoodycamelThreadedExecutor, MoodycamelThreadedExecutorComponent, ThreadedExecOptions, ThreadedNodeOptions, configureThreadedNode, configureThread, spinWait, 绑核, Cpus, CpuAutoBind, CpuAutoBindOnNuma, HwlocThreadCpuAllocator, HwlocThreadCpuAllocatorComponent, HwlocCrossProcessCpuAllocatorComponent, CpuAllocatorScope, crossProcessLockDir, reserveReplacing, 多进程协商, flock, HwlocCpuAllocatorConfig, ThreadCpuLease, SmtPolicy, hwloc, NUMA, kOwnContext, kSerialCallbacks, wakeIdle, threadHandle, 执行器, 线程池, 共享线程池, 同步执行, FIFO顺序, strand, FIFO, concurrentqueue, moodycamel_executor]
 ---
 
 # 实时 handler 与可替换执行器
@@ -147,7 +147,8 @@ M::configureThreadedNode(node, ThreadedNodeOptions().CpuAutoBindOnNuma(1));     
 3. 每个 NUMA 节点的**首核**默认避开（`avoidFirstCoreOfNumaNode`）：它承载该节点的中断与内核杂务。
 4. `excludeCpus` 是避让列表，按**整个物理核**生效——第三方库在 CPU X 上忙时，X 的 SMT 兄弟也不会被分配。
 5. NUMA 选择默认“集中”：先留在已有自动分配、且仍有空闲核的节点；其次是线程 membind 为 BIND 策略时指定的节点；最后按空闲核数排序。`CpuAutoBindOnNuma(n)` 只在节点 n 内挑。
-6. 显式 `Cpus()` 在挂了分配器的 Environment 里会被登记为预留，自动分配会避开整核；预留与已自动分配的核冲突时报错，且**按物理核判断**——自动分配了 CPU 2 之后再预留它的 SMT 兄弟 CPU 30 同样报错，隔离保证不依赖配置顺序。预留不可用 CPU 也直接抛异常。
+6. 显式 `Cpus()` 在挂了分配器的 Environment 里会被登记为预留，自动分配会避开整核；预留与已自动分配的核冲突时报错，且**按物理核判断**——自动分配了 CPU 2 之后再预留它的 SMT 兄弟 CPU 30 同样报错，隔离保证不依赖配置顺序。预留不可用 CPU 也直接抛异常。两个显式预留落在同一物理核同样报错（同一节点用相同 CPU 重配置除外，见下文 `reserveReplacing`）。
+7. `excludeCpus` 所在物理核**任何方式都不能绑定**：自动分配跳过它，显式 `Cpus()`（挂了分配器时）和 `bindCurrentThreadTo` 绑到它（含 SMT 兄弟）抛 `CpuAutoBindError`；列表中任一 CPU 被拒，整次调用不登记任何预留。
 
 **失败一律抛异常**，不静默降级：没有可用核、NUMA 节点不存在或不可用、`excludeCpus` 写了不可用或不存在的 CPU、节点没有专用线程（Inline、SharedPool）等，都会抛出带诊断的异常（列出可用 PU、被排除的核、已分配 CPU 等）。这与 spinWait/`Cpus()` “不支持就返回 false”的约定不同。
 
@@ -158,6 +159,8 @@ class IThreadCpuAllocator {             // infra
     virtual int acquire(CpuAutoBindRequest const &, std::string const &who) = 0;
     virtual void reserve(std::vector<int> const &cpus, std::string const &who) = 0;
     virtual void release(std::vector<int> const &cpus) noexcept = 0;
+    // 节点重配置：previous 中的 CPU 属于调用者自己，不算冲突。默认实现转调 reserve
+    virtual void reserveReplacing(std::vector<int> const &cpus, std::vector<int> const &previous, std::string const &who);
 };
 template <class Access> struct ThreadCpuAllocatorComponent; // Environment 组件
 ```
@@ -173,6 +176,28 @@ basic::HwlocThreadCpuAllocator::configure(cfg);
 ```
 
 `configure()` 必须在首次使用前调用，之后再调用抛 `std::logic_error`（与 `SharedThreadPool::configure` 相同）。头文件用 `__has_include(<hwloc.h>)` 探测；下游启用该功能需自己链接 hwloc（pkg-config 名 `hwloc`），tm_basic 的 `.pc` 不要求它。未挂载分配器组件就调用 `CpuAutoBind()` 时，节点会抛异常并提示需要的组件。首次加载拓扑失败（例如 `excludeCpus` 含不可用或不存在的 CPU）会整体回滚，不留半成品状态；此时分配器仍算“未使用”，可以再次 `configure()` 修正配置后重试。
+
+### 多进程协商（CrossProcess）
+
+`HwlocThreadCpuAllocatorComponent` 只在本进程内防止忙线程抢同一物理核。同一台机器上多个 tm_kit 进程都用 `CpuAutoBind()` 时，会从相同的候选顺序挑核而撞到一起。把组件换成 `basic::HwlocCrossProcessCpuAllocatorComponent` 即开启跨进程协商（默认关闭）：
+
+```cpp
+struct Env : ..., basic::HwlocCrossProcessCpuAllocatorComponent {};
+
+basic::HwlocCpuAllocatorConfig cfg;
+cfg.excludeCpus = {8, 9};
+// cfg.crossProcessLockDir = "/dev/shm/tm_kit_cpu_locks";   // 默认值
+basic::HwlocThreadCpuAllocator::configure(cfg, basic::CpuAllocatorScope::CrossProcess);
+```
+
+- **机制**：锁目录（默认 `/dev/shm/tm_kit_cpu_locks`，不存在时以 `01777` 创建）中每个物理核一个 `core-<N>.lock`，N 是该核完整 cpuset 的最小 PU 号，不同 taskset/cgroup 掩码的进程得到同一个键。占用 = 对该文件持有 `flock(LOCK_EX)`；进程以任何方式退出（含 `kill -9`、崩溃）时内核释放锁，没有残留状态需要回收。`lslocks` 可直接看到持有者。
+- **覆盖三种绑定方式**：`CpuAutoBind*` 跳过被其他进程占用的核；显式 `Cpus()` 和 `ThreadCpuLease::bindCurrentThreadTo` 碰到其他进程已占的核（含 SMT 兄弟）**一律抛 `CpuAutoBindError`**（独占），消息带锁文件中记录的最后写入者 pid。
+- **释放**：线程租约结束或节点析构即释放该核的锁；同一核被多个显式预留引用时按引用计数。
+- **excludeCpus 对其他进程也生效**：排除的核由本进程加锁“占住”，其他进程不会分配到；带 scope 的 `configure(cfg, CrossProcess)` 返回前就完成发布，要排除的核已被他人占用时抛异常并回滚配置。
+- **NUMA 选择**会计入其他进程的占用（读 `/proc/locks` 快照，只用于排序；真正分配以 try-lock 为准）。
+- **fork**：锁 fd 带 `O_CLOEXEC`；只 fork 不 exec 的子进程在 `pthread_atfork` child 回调中关闭继承的线程/预留锁，不会延长父进程的占用。`excludeCpus` 的锁例外，由子进程继承并保持，父进程退出后子进程的排除核仍受保护。`ThreadCpuLease` 的线程登记表随 fork 复制，子进程应在新线程里绑核。
+- 行为与 Local 一致，区别只在范围：`excludeCpus`、`avoidFirstCoreOfNumaNode`、`smt` 两种组件含义相同。同一进程不能混用两种组件（抛 `std::logic_error`）。
+- **限制**：只有使用同一锁目录的进程之间才协商；不同容器的 `/dev/shm` 互相隔离，需挂载同一目录；不支持 NFS 等网络文件系统。不用 tm_kit 的第三方进程不参与协商，仍需 `excludeCpus` 避让。能写锁目录的本机用户都能占住锁文件，目录权限由部署方负责。非 Linux 平台使用 CrossProcess 抛异常。
 
 ### 自写线程复用绑核（ThreadCpuLease）
 
@@ -269,6 +294,7 @@ class ThreadedHandler : public ExecHandler<T, W, ThreadedPolicy> {};
 - `kOwnContext` 表示“不同执行上下文”，不等于“节点独占固定 OS 线程”；共享池也返回 true。
 - `stop()` 不是 join 或 drain：它是非阻塞的，也不排空待处理数据。**join 发生在执行器析构**：`DedicatedThreadExecutor` 与 `MoodycamelThreadedExecutor` 在析构中先 `stop()` 再 `join()`，所以显式 `delete` 一个执行器/节点后会等到其线程退出；执行器从自己的回调内被析构时无法自 join，退化为 detach，线程在回调返回后自行退出。其他自带线程的节点（`SimpleImporter`、`BunchedImporter`、`ChainReader`/`ChainWriter`、`CommonFlowUtils` 中的节点、`SharedThreadPool`）仍是 detached。host / Environment / 回调访问的资源必须覆盖回调期。SharedPool 的 executor 析构会同步正在运行的 slice（自身回调内析构有专门处理），也不能据此声称整个图可任意安全析构。
 - 切换 SharedPool 或 Inline 前核对回调里的阻塞、重入与共享状态；原生线程句柄可能不存在。
+- 多个 tm_kit 进程同机运行时，只挂 `HwlocThreadCpuAllocatorComponent` 不会跨进程协商，忙线程可能落在同一核；需要换成 `HwlocCrossProcessCpuAllocatorComponent`。
 - 性能数据依赖负载、CPU 绑定、SMT 与自旋预算，不把历史 benchmark 的单次结果作为 API 保证。
 
 ## 第三方依赖

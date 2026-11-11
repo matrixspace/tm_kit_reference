@@ -4,13 +4,13 @@
   "libraries": {
     "tm_infra": {
       "repo": "git@github.com:matrixspace/tm_infra.git",
-      "commit": "6c642e3",
+      "commit": "e7504d0",
       "commit_date": "2026-11-11",
       "headers": 79
     },
     "tm_basic": {
       "repo": "git@github.com:matrixspace/tm_basic.git",
-      "commit": "37db041",
+      "commit": "9764916",
       "commit_date": "2026-11-11",
       "headers": 113
     },
@@ -23,6 +23,6 @@
   },
   "docs": {
     "files": 56,
-    "lines": 17937
+    "lines": 17985
   }
 }
