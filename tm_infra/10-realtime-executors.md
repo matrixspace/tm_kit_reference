@@ -1,8 +1,8 @@
 ---
 title: 实时 handler 与可替换执行器
 library: tm_infra
-headers: [tm_kit/infra/RealTimeThreadedExecutor.hpp, tm_kit/infra/RealTimeApp.hpp, tm_kit/basic/RealTimeSharedPoolExecutor.hpp, tm_kit/basic/MoodycamelThreadedExecutor.hpp, tm_kit/basic/RealTimeMPSCQueue.hpp]
-keywords: [ThreadedHandler, ExecHandler, HandlerPolicy, ThreadedPolicy, InlinePolicy, InlineExecutor, DedicatedThreadExecutor, RealTimeThreadedExecutorComponent, RealTimeThreadedExecutorFor, RealTimeSharedPoolExecutor, RealTimeSharedPoolExecutorComponent, SharedThreadPool, SharedThreadPoolConfig, MoodycamelThreadedExecutor, MoodycamelThreadedExecutorComponent, ThreadedExecOptions, kOwnContext, kSerialCallbacks, wakeIdle, threadHandle, 执行器, 线程池, 共享线程池, 同步执行, FIFO顺序, strand, FIFO, concurrentqueue, moodycamel_executor]
+headers: [tm_kit/infra/RealTimeThreadedExecutor.hpp, tm_kit/infra/RealTimeApp.hpp, tm_kit/basic/RealTimeSharedPoolExecutor.hpp, tm_kit/basic/MoodycamelThreadedExecutor.hpp, tm_kit/basic/RealTimeMPSCQueue.hpp, tm_kit/basic/HwlocThreadCpuAllocator.hpp]
+keywords: [ThreadedHandler, ExecHandler, HandlerPolicy, ThreadedPolicy, InlinePolicy, InlineExecutor, DedicatedThreadExecutor, RealTimeThreadedExecutorComponent, RealTimeThreadedExecutorFor, RealTimeSharedPoolExecutor, RealTimeSharedPoolExecutorComponent, SharedThreadPool, SharedThreadPoolConfig, MoodycamelThreadedExecutor, MoodycamelThreadedExecutorComponent, ThreadedExecOptions, ThreadedNodeOptions, configureThreadedNode, configureThread, spinWait, 绑核, Cpus, CpuAutoBind, CpuAutoBindOnNuma, HwlocThreadCpuAllocator, HwlocThreadCpuAllocatorComponent, HwlocCpuAllocatorConfig, ThreadCpuLease, SmtPolicy, hwloc, NUMA, kOwnContext, kSerialCallbacks, wakeIdle, threadHandle, 执行器, 线程池, 共享线程池, 同步执行, FIFO顺序, strand, FIFO, concurrentqueue, moodycamel_executor]
 ---
 
 # 实时 handler 与可替换执行器
@@ -11,7 +11,7 @@ keywords: [ThreadedHandler, ExecHandler, HandlerPolicy, ThreadedPolicy, InlinePo
 
 `RealTimeApp` 把节点逻辑和调度方式分开：统一的 `ExecHandler` 负责数据分派、时间与版本检查，执行器（executor）决定是在调用线程同步处理、专用线程处理，还是交给共享线程池。通过 Environment 选择执行器，无需为 action、exporter、facility 各维护同步与异步两份实现。
 
-本文对应 2026-11-09 合并到本地 `develop` 的最终源码；具体 commit 见 [VERSIONS.json](../VERSIONS.json)。默认执行器是 **infra 的 mutex/list `DedicatedThreadExecutor`**。早期开发记录中的默认 MPSC、Enhanced 执行器和带 `ThreadedExecMode` 的契约均为历史方案。
+本文对应 2026-11-11 的 `develop` 源码（含逐节点 spinWait/绑核与 CpuAutoBind）；具体 commit 见 [VERSIONS.json](../VERSIONS.json)。默认执行器是 **infra 的 mutex/list `DedicatedThreadExecutor`**。早期开发记录中的默认 MPSC、Enhanced 执行器和带 `ThreadedExecMode` 的契约均为历史方案。
 
 ## 头文件与命名空间
 
