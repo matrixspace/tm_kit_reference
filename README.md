@@ -78,6 +78,7 @@ tm_infra  ──►  tm_basic  ──►  tm_transport  ──►  tm_examples
 | 08 | [共享链](tm_basic/08-shared-chain.md) | simple_shared_chain：Reader/Writer/Folder | `simple_shared_chain/*.hpp` |
 | 09 | [事务 v2](tm_basic/09-transaction.md) | DataStream、TransactionFacility、GeneralSubscriber | `transaction/v2/*.hpp` |
 | 10 | [AppRunnerUtils](tm_basic/10-app-runner-utils.md) | 类型适配、退出计时器、多图交错、图控制 | `AppRunnerUtils.hpp`, `MultiAppRunnerUtils.hpp` |
+| 11 | [hwloc 线程绑核分配器](tm_basic/11-hwloc-cpu-allocator.md) | CpuAutoBind 的 hwloc 实现、excludeCpus、跨进程协商 | `HwlocThreadCpuAllocator.hpp` |
 
 ### tm_transport —— 进程间通信
 
@@ -154,6 +155,7 @@ tm_infra  ──►  tm_basic  ──►  tm_transport  ──►  tm_examples
 | 加签名 / 身份校验 / TLS | [tm_transport/06](tm_transport/06-security.md) |
 | 把 facility 暴露给 C#/Python/前端 | [03-transports/grpc_interop](tm_transport/03-transports/grpc_interop.md)、[websocket](tm_transport/03-transports/websocket.md)、[json_rest](tm_transport/03-transports/json_rest.md) |
 | 让两个 runner 交错回测 | [tm_basic/10](tm_basic/10-app-runner-utils.md) |
+| 忙线程自动绑核 / 多进程不抢同一核 | [tm_basic/11](tm_basic/11-hwloc-cpu-allocator.md) |
 | 输出 Graphviz 图 | [tm_infra/05](tm_infra/05-app-runner.md) |
 
 ## 按头文件查

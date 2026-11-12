@@ -163,7 +163,7 @@ using FullRequestType = std::tuple<IdentityType, Request>;
 
 `stop()` 本身不是 join，也不排空待处理数据，它是非阻塞的；但默认 Dedicated 和可选 Moodycamel 的工作线程会在**执行器析构时** stop + join。因此显式销毁执行器/节点后会等到线程退出（从自身回调内析构时退化为 detach），而只调 `stop()` 而不销毁则仍可能有回调在跑。其他自带线程的节点（`simpleImporter`、`BunchedImporter`、ChainReader/ChainWriter、`SharedThreadPool`）仍是 detached，不能假定 stop 后没有回调还在访问 host / Environment。共享池也只保证同一节点回调互斥，不能自动保护多个节点共享的状态。
 
-关键路径节点可以用 `ThreadedNodeOptions().CpuAutoBind()` 让框架挑核（遵守 taskset/numactl、SMT、NUMA 首核与避让列表），自己的线程用 `infra::ThreadCpuLease::bindCurrentThread<Env>(...)` 复用同一个分配器，二者不会抢到同一物理核。失败会抛异常，不会静默降级；没有挂 `basic::HwlocThreadCpuAllocatorComponent` 的 Environment 不能用这套功能。详见 [实时执行器](tm_infra/10-realtime-executors.md#自动绑核cpuautobind)。
+关键路径节点可以用 `ThreadedNodeOptions().CpuAutoBind()` 让框架挑核（遵守 taskset/numactl、SMT、NUMA 首核与避让列表），自己的线程用 `infra::ThreadCpuLease::bindCurrentThread<Env>(...)` 复用同一个分配器，二者不会抢到同一物理核。失败会抛异常，不会静默降级；没有挂 `basic::HwlocThreadCpuAllocatorComponent`（或跨进程版 `HwlocCrossProcessCpuAllocatorComponent`）的 Environment 不能用这套功能。接口见 [实时执行器](tm_infra/10-realtime-executors.md#自动绑核cpuautobind)，分配规则与多进程协商见 [hwloc 线程绑核分配器](tm_basic/11-hwloc-cpu-allocator.md)。
 
 ### 4.2 `env` 与外部资源的生命周期必须覆盖图
 

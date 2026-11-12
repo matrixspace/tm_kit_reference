@@ -10,7 +10,7 @@ tm_infra  ──►  tm_basic  ──►  tm_transport
   图与节点       时钟/序列化/事务     进程间通信
 ```
 
-完整参考文档 56 篇、约 17,985 行，就在本仓库里。单篇 3k–14k token，**整包约 38 万 token，不要一次性全读**。
+完整参考文档 57 篇、约 18,112 行，就在本仓库里。单篇 3k–14k token，**整包约 38 万 token，不要一次性全读**。
 
 ## 怎么用这套文档
 
@@ -19,7 +19,7 @@ tm_infra  ──►  tm_basic  ──►  tm_transport
 | 层 | 内容 | 什么时候用 |
 |---|---|---|
 | **常驻** | 就是本文件 | 每次会话自动加载。铁律 + 路由表足够覆盖大部分情况 |
-| **单篇** | 56 篇文档文件 | 要写某类代码时，按下面的路由表或关键词索引定位，然后整篇 Read |
+| **单篇** | 57 篇文档文件 | 要写某类代码时，按下面的路由表或关键词索引定位，然后整篇 Read |
 | **检索** | `tools/tm_docs` | 路由表里找不到时用它搜；比盲 grep 准 |
 
 ```bash
@@ -93,6 +93,7 @@ tm_infra  ──►  tm_basic  ──►  tm_transport
 | 事件溯源 / 可重放状态机 | `tm_basic/08-shared-chain.md` |
 | 多图交错回测 / 退出计时器 | `tm_basic/10-app-runner-utils.md` |
 | 时钟组件怎么选 | `tm_basic/01-clocks.md` |
+| 忙线程自动绑核 / 多进程 CPU 协商 | `tm_basic/11-hwloc-cpu-allocator.md` |
 | 跨进程广播 / 发布订阅 | `tm_transport/01-broadcast.md` |
 | 跨进程 RPC / 远程设施 | `tm_transport/02-facilities.md` |
 | 选传输（RabbitMQ / ZeroMQ / gRPC…） | `tm_transport/00-overview.md` + `tm_transport/03-transports/` |
@@ -117,7 +118,7 @@ tm_infra  ──►  tm_basic  ──►  tm_transport
 | `DelaySimulator` | 忽略 | 生效（模拟逻辑耗时） |
 | 结束方式 | `terminationController` 阻塞 main | `finalize()` 返回即结束 |
 
-> **文档校验版本**：2026-11-11 — 56 篇 / 17985 行
+> **文档校验版本**：2026-11-11 — 57 篇 / 18112 行
 >
 > | 库 | commit | 日期 |
 > |---|---|---|
@@ -154,6 +155,7 @@ tm_infra  ──►  tm_basic  ──►  tm_transport
 | [`tm_basic/08-shared-chain.md`](tm_basic/08-shared-chain.md) | 共享链（simple_shared_chain） |
 | [`tm_basic/09-transaction.md`](tm_basic/09-transaction.md) | Transaction v2 — 分布式事务与订阅框架 |
 | [`tm_basic/10-app-runner-utils.md`](tm_basic/10-app-runner-utils.md) | AppRunnerUtils / MultiAppRunnerUtils / GraphControlFacility |
+| [`tm_basic/11-hwloc-cpu-allocator.md`](tm_basic/11-hwloc-cpu-allocator.md) | hwloc 线程绑核分配器（HwlocThreadCpuAllocator） |
 | [`tm_transport/00-overview.md`](tm_transport/00-overview.md) | tm_transport 概览 |
 | [`tm_transport/01-broadcast.md`](tm_transport/01-broadcast.md) | 广播：listener 与 publisher |
 | [`tm_transport/02-facilities.md`](tm_transport/02-facilities.md) | 远程设施（on-order facility over transport） |

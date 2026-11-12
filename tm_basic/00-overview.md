@@ -67,6 +67,8 @@ tm_kit/basic/
 └── AppRunner 工具
     ├── AppRunnerUtils.hpp             AppRunnerUtilComponents<R>
     └── MultiAppRunnerUtils.hpp
+└── 线程绑核（可选，hwloc）
+    └── HwlocThreadCpuAllocator.hpp    CpuAutoBind 分配器、Local / CrossProcess 组件
 ```
 
 ## 使用入口
@@ -107,3 +109,4 @@ basic::top_down_single_pass_iteration_clock::ClockComponent<
 - [共享链](08-shared-chain.md)
 - [事务协议](09-transaction.md)
 - [AppRunnerUtils](10-app-runner-utils.md)
+- [hwloc 线程绑核分配器](11-hwloc-cpu-allocator.md)

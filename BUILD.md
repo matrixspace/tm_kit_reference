@@ -192,7 +192,7 @@ meson setup builddir --buildtype=release -Dhwloc_cpu_allocator=disabled
 
 `build.sh` 只传 `--buildtype`、`--prefix` 和 `--cmake-prefix-path`，不能设置这些选项；需要覆盖时用 `meson setup` 手动配置。依赖存在但想强制关闭时用 `disabled`，缺少依赖但要求启用时用 `enabled`（缺失会直接报错）。
 
-下游使用 `HwlocThreadCpuAllocator` 时需在自己的 meson 里显式引入 `dependency('hwloc')`——tm_basic 的 `.pc` 不传递该依赖，未使用该功能的下游不受影响。
+下游使用 `HwlocThreadCpuAllocator` 时需在自己的 meson 里显式引入 `dependency('hwloc')`——tm_basic 的 `.pc` 不传递该依赖，未使用该功能的下游不受影响。用法见 [tm_basic/11](tm_basic/11-hwloc-cpu-allocator.md)。
 
 ## 7. 编译开销
 
