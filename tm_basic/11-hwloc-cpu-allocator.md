@@ -2,7 +2,7 @@
 title: hwloc 线程绑核分配器（HwlocThreadCpuAllocator）
 library: tm_basic
 headers: [tm_kit/basic/HwlocThreadCpuAllocator.hpp]
-keywords: [HwlocThreadCpuAllocator, HwlocThreadCpuAllocatorComponent, HwlocCrossProcessCpuAllocatorComponent, HwlocCpuAllocatorConfig, CpuAllocatorScope, crossProcessLockDir, excludeCpus, avoidFirstCoreOfNumaNode, SmtPolicy, RequireFullCore, AllowPartialCore, CpuAutoBindError, reserveReplacing, CpuAutoBind, ThreadCpuLease, 绑核, 自动绑核, 多进程协商, flock, hwloc, NUMA, SMT, hwloc_cpu_allocator]
+keywords: [HwlocThreadCpuAllocator, HwlocThreadCpuAllocatorComponent, HwlocCrossProcessCpuAllocatorComponent, HwlocCpuAllocatorConfig, CpuAllocatorScope, crossProcessLockDir, excludeCpus, avoidFirstCoreOfNumaNode, SmtPolicy, RequireFullCore, AllowPartialCore, CpuAutoBindError, reserveReplacing, CpuAutoBind, ThreadCpuLease, 绑核, 自动绑核, 多进程协商, flock, hwloc, NUMA, SMT, hwloc_cpu_allocator, fromString, 绑核字符串, bindCurrentThreadBy]
 ---
 
 # hwloc 线程绑核分配器（HwlocThreadCpuAllocator）
@@ -70,7 +70,34 @@ basic::HwlocThreadCpuAllocator::configure(cfg);
 
 - `configure()` 必须在首次使用前调用，之后再调用抛 `std::logic_error`（与 `SharedThreadPool::configure` 相同）。
 - 首次加载拓扑失败（例如 `excludeCpus` 含不可用或不存在的 CPU）会整体回滚，不留半成品状态；此时分配器仍算“未使用”，可以再次 `configure()` 修正后重试。
-- 未挂分配器组件就调用 `CpuAutoBind()` 时，节点抛异常并提示需要的组件；`ThreadCpuLease::bindCurrentThread<Env>` 则 `static_assert` 编译失败。
+- 未挂分配器组件就调用 `CpuAutoBind()` 时，节点抛异常并提示需要的组件；`ThreadCpuLease::bindCurrentThread<Env>` 则 `static_assert` 编译失败。字符串入口 `bindCurrentThreadBy<Env>` 例外：`"none"` 可以编译并返回非激活租约，真正请求绑核时运行时抛 `ThreadCpuBindError`（见 [实时执行器 · 字符串绑核策略](../tm_infra/10-realtime-executors.md#字符串绑核策略cpubind)）。
+
+#### 从字符串配置（fromString）
+
+配置来自配置文件或命令行时，可以用一个分号分隔的 `key=value` 串构造：
+
+```cpp
+static HwlocCpuAllocatorConfig fromString(std::string const &s,
+                                          CpuAllocatorScope *scopeOut = nullptr);
+
+basic::CpuAllocatorScope scope = basic::CpuAllocatorScope::Local;
+auto cfg = basic::HwlocCpuAllocatorConfig::fromString(
+    "exclude=8,9;smt=partial;scope=cross;lockdir=/dev/shm/my_locks", &scope);
+basic::HwlocThreadCpuAllocator::configure(cfg, scope);
+```
+
+| key | 取值 | 对应字段 |
+|---|---|---|
+| `exclude` | CPU 列表，与 `parseCpuList` 同语法（`8,9`、`4-7`） | `excludeCpus`（整体替换） |
+| `avoid_first` | `0` / `false` / `no` 关闭，其他任何值都视为开启 | `avoidFirstCoreOfNumaNode` |
+| `smt` | `partial`（或 `allow_partial`）/ `require_full`（或 `full`） | `smt` |
+| `scope` | `local` / `cross`（或 `cross_process`） | 写入 `*scopeOut` |
+| `lockdir` | 路径，原样使用 | `crossProcessLockDir` |
+
+- key 和枚举值大小写不敏感，每项两侧空白忽略；空串返回默认配置。未写的 key 保持默认值。
+- 未知 key、缺少 `=`、非法 `smt`/`scope` 值抛 `std::invalid_argument`。`exclude` 的校验与 tm_infra 解析器一致，`exclude=8foo`、`exclude=8-9-10`、`exclude=-1` 都会抛异常。
+- `scopeOut` 为空指针时 `scope=` 项**被忽略，取值也不校验**。需要 scope 时务必传入指针，并用带 scope 的 `configure(cfg, scope)`。
+- `fromString` 只构造配置，不调用 hwloc；拓扑相关的错误（例如排除了不存在的 CPU）仍在 `configure()` / 首次使用时报告。
 
 ## 分配规则
 
@@ -140,5 +167,6 @@ std::thread([] {
 ## 相关章节
 
 - [实时执行器 · 自动绑核 / ThreadCpuLease](../tm_infra/10-realtime-executors.md#自动绑核cpuautobind)
+- [实时执行器 · 字符串绑核策略（CpuBind）](../tm_infra/10-realtime-executors.md#字符串绑核策略cpubind)
 - [Environment](../tm_infra/02-environments.md)
 - [跨库模式](../PATTERNS.md)

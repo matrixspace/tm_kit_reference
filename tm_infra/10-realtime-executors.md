@@ -2,7 +2,7 @@
 title: 实时 handler 与可替换执行器
 library: tm_infra
 headers: [tm_kit/infra/RealTimeThreadedExecutor.hpp, tm_kit/infra/RealTimeApp.hpp, tm_kit/basic/RealTimeSharedPoolExecutor.hpp, tm_kit/basic/MoodycamelThreadedExecutor.hpp, tm_kit/basic/RealTimeMPSCQueue.hpp]
-keywords: [ThreadedHandler, ExecHandler, HandlerPolicy, ThreadedPolicy, InlinePolicy, InlineExecutor, DedicatedThreadExecutor, RealTimeThreadedExecutorComponent, RealTimeThreadedExecutorFor, RealTimeSharedPoolExecutor, RealTimeSharedPoolExecutorComponent, SharedThreadPool, SharedThreadPoolConfig, MoodycamelThreadedExecutor, MoodycamelThreadedExecutorComponent, ThreadedExecOptions, ThreadedNodeOptions, configureThreadedNode, configureThread, spinWait, 绑核, Cpus, CpuAutoBind, CpuAutoBindOnNuma, reserveReplacing, IThreadCpuAllocator, ThreadCpuAllocatorComponent, ThreadCpuLease, NUMA, kOwnContext, kSerialCallbacks, wakeIdle, threadHandle, 执行器, 线程池, 共享线程池, 同步执行, FIFO顺序, strand, FIFO, concurrentqueue, moodycamel_executor]
+keywords: [ThreadedHandler, ExecHandler, HandlerPolicy, ThreadedPolicy, InlinePolicy, InlineExecutor, DedicatedThreadExecutor, RealTimeThreadedExecutorComponent, RealTimeThreadedExecutorFor, RealTimeSharedPoolExecutor, RealTimeSharedPoolExecutorComponent, SharedThreadPool, SharedThreadPoolConfig, MoodycamelThreadedExecutor, MoodycamelThreadedExecutorComponent, ThreadedExecOptions, ThreadedNodeOptions, configureThreadedNode, configureThread, spinWait, 绑核, Cpus, CpuAutoBind, CpuAutoBindOnNuma, reserveReplacing, IThreadCpuAllocator, ThreadCpuAllocatorComponent, ThreadCpuLease, CpuBind, fromCpuBindString, bindCurrentThreadBy, CpuBindingSpec, CpuBindKind, parseCpuList, cpusFromString, 绑核字符串, NUMA, kOwnContext, kSerialCallbacks, wakeIdle, threadHandle, 执行器, 线程池, 共享线程池, 同步执行, FIFO顺序, strand, FIFO, concurrentqueue, moodycamel_executor]
 ---
 
 # 实时 handler 与可替换执行器
@@ -11,7 +11,7 @@ keywords: [ThreadedHandler, ExecHandler, HandlerPolicy, ThreadedPolicy, InlinePo
 
 `RealTimeApp` 把节点逻辑和调度方式分开：统一的 `ExecHandler` 负责数据分派、时间与版本检查，执行器（executor）决定是在调用线程同步处理、专用线程处理，还是交给共享线程池。通过 Environment 选择执行器，无需为 action、exporter、facility 各维护同步与异步两份实现。
 
-本文对应 2026-11-11 的 `develop` 源码（含逐节点 spinWait/绑核与 CpuAutoBind）；具体 commit 见 [VERSIONS.json](../VERSIONS.json)。默认执行器是 **infra 的 mutex/list `DedicatedThreadExecutor`**。早期开发记录中的默认 MPSC、Enhanced 执行器和带 `ThreadedExecMode` 的契约均为历史方案。
+本文对应 2026-11-12 的 `develop` 源码（含逐节点 spinWait/绑核、CpuAutoBind 与字符串绑核策略）；具体 commit 见 [VERSIONS.json](../VERSIONS.json)。默认执行器是 **infra 的 mutex/list `DedicatedThreadExecutor`**。早期开发记录中的默认 MPSC、Enhanced 执行器和带 `ThreadedExecMode` 的契约均为历史方案。
 
 ## 头文件与命名空间
 
@@ -185,6 +185,46 @@ void run() {   // 自己线程函数的第一行
 
 图节点内部的租约（`ThreadCpuLease::adopt`）与用户线程共用同一套归还逻辑；节点析构时先 join 线程再归还 CPU。
 
+### 字符串绑核策略（CpuBind）
+
+绑核策略常来自配置文件或命令行。一个字符串即可选择上面几种方式，节点和自建线程用同一套语法（`tm_infra/tm_kit/infra/RealTimeThreadedExecutor.hpp`）：
+
+| 字符串 | 含义 | 等价调用 |
+|---|---|---|
+| `""` / `"none"` | 不绑定，保持现有绑核 | 不调用 |
+| `"auto"` | 全局自动选核 | `CpuAutoBind()` / `bindCurrentThread` |
+| `"numa:1"` | 只在 NUMA 节点 1 内自动选核 | `CpuAutoBindOnNuma(1)` / `bindCurrentThreadOnNuma` |
+| `"cpus:2,3,8-11"` | 显式 CPU 列表 | `Cpus({2,3,8,9,10,11})` / `bindCurrentThreadTo` |
+| `"8-11"`、`"2,3"` | `cpus:` 的简写 | 同上 |
+
+```cpp
+M::configureThreadedNode(node, ThreadedNodeOptions().CpuBind(cfg.nodeCpu));      // 链式
+M::configureThreadedNode(node, ThreadedNodeOptions::fromCpuBindString("numa:1")); // 工厂
+auto lease = infra::ThreadCpuLease::bindCurrentThreadBy<Env>(cfg.rxCpu, "nic-rx"); // 自建线程
+// 也有接收 IThreadCpuAllocator & 的重载：bindCurrentThreadBy(alloc, spec, who)
+```
+
+底层类型与工具：
+
+```cpp
+std::vector<int> parseCpuList(std::string const &);   // "2,3,8-11"、"2:5" → CPU 列表
+enum class CpuBindKind { None, Auto, AutoOnNuma, Cpus };
+struct CpuBindingSpec {
+    CpuBindKind kind; std::optional<int> numaNode; std::vector<int> cpus;
+    static CpuBindingSpec parse(std::string const &);
+};
+```
+
+语义要点：
+
+- 关键字大小写不敏感，首尾空白忽略；范围可用 `-` 或 `:`，逗号分隔的每项两侧可有空白（`"2 - 4"` 合法）。
+- **校验是严格的**：每个数字必须是完整的非负十进制数，`"cpus:2foo"`、`"2-3-8"`、`"numa:1,2"`、`"-1"`、`"+2"`、超出 `INT_MAX` 的值、`lo > hi` 的范围和未知关键字一律抛 `std::invalid_argument`，不会只取数字前缀。范围展开到 `INT_MAX` 也不会溢出。
+- `"none"` 不清除已有绑核：`Cpus({4}).CpuBind("none")` 仍保留 CPU 4，与“空 `cpus` 不清除绑核”的约定一致。`"cpus:"`（空列表）按 none 处理。
+- `bindCurrentThreadBy<Env>` 对 `"none"` / `""` 返回非激活租约，不访问分配器；Environment **没有**分配器组件时仍能编译，只有真正请求绑核（`auto`/`numa:`/`cpus:`）时才在运行时抛 `ThreadCpuBindError`。这一点不同于三个具名入口的 `static_assert`，便于同一份代码在不启用绑核的环境下复用。
+- 解析出的策略随后走原有路径，所以分配规则、冲突检测和“失败抛异常”的行为与具名接口完全相同。
+
+tm_basic 的配置串复用同一个 `parseCpuList`：`SharedThreadPoolConfig::cpusFromString`（见下节）和 `HwlocCpuAllocatorConfig::fromString`（见 [tm_basic/11](../tm_basic/11-hwloc-cpu-allocator.md#配置)）。
+
 ### SharedPool：显式选择与进程级配置
 
 `basic::RealTimeSharedPoolExecutorComponent` 继承选择组件（`tm_basic/tm_kit/basic/RealTimeSharedPoolExecutor.hpp:518`）。把它作为 Environment 的一个组件即可选择共享池。示例代码库 `tm_examples` 中暂无用例；真实配置签名与默认值见同一头文件的 `:63`、`:247`：
@@ -196,10 +236,14 @@ struct SharedThreadPoolConfig {
     std::chrono::nanoseconds idleTick = std::chrono::milliseconds(1);
     unsigned maxBatch = 64;
     std::chrono::nanoseconds spinWait = std::chrono::microseconds(200);
+    // "2-5"、"cpus:2,3"；"none"/"" 清空 cpus；返回 *this，非法串抛 std::invalid_argument
+    SharedThreadPoolConfig &cpusFromString(std::string const &s);
 };
 // SharedThreadPool 的公开静态成员：
 static void configure(SharedThreadPoolConfig const &cfg);
 ```
+
+`cpusFromString` 只接受 `none` 和 CPU 列表；`auto`、`numa:` 对池线程没有意义，会抛异常。注意它对 `"none"` 是**清空** `cpus`，与节点级 `CpuBind("none")` 的“保持不变”不同。
 
 `threadCount=0` 使用 `hardware_concurrency()`（至少一个线程）；Linux 下 `cpus` 非空时按循环分配绑核。必须在首个池执行器节点构造前 `configure`，池启动后修改会抛 `std::logic_error`。每次 slice 最多处理 `maxBatch` 项，再把仍有工作的 strand 重新调度，避免一个繁忙节点永久占用池线程。
 
