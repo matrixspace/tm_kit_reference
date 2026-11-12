@@ -253,6 +253,9 @@ class ThreadedHandler : public ExecHandler<T, W, ThreadedPolicy> {};
 | `SuggestThreaded` | 为基于 handler 的节点选择策略 | 忽略 |
 | 默认时间检查 | 关闭，可显式启用 | 同样关闭，可显式启用 |
 | 输出时间戳与回测调度 | 仍由 Environment 和图逻辑决定 | 执行器组件不改变单线程迭代或时间排序 |
+| `configureThreadedNode` | 生效（有专用线程的节点返回 true，否则返回 false） | 编译通过，始终返回 false（no-op） |
+
+`SinglePassIterationApp`、`TopDownSinglePassIterationApp`、`BasicWithTimeApp` 均已提供与 `RealTimeApp::configureThreadedNode` 签名兼容的 no-op 静态方法，使同一份图构建代码无需 `#ifdef` 即可在实时和回测模式下复用。
 
 ## 易错点
 
