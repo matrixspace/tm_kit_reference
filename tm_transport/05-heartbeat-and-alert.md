@@ -76,7 +76,7 @@ public:
 
 `facilityChannels` 的值是单个 `string`——一个设施名对应一个信道。
 
-### 2. `HeartbeatAndAlertComponent`（`HeartbeatAndAlertComponent.hpp:41`）
+### 2. `HeartbeatAndAlertComponent`（`HeartbeatAndAlertComponent.hpp:42`）
 
 Environment 组件。同时是**日志组件**（通过 `AlertEnhancedLoggingComponent` 接入 `infra::LogLevel`）。
 
@@ -103,7 +103,7 @@ public:
 ### 3. 初始化：`initializeHeartbeatAndAlertComponent`
 
 ```cpp
-// :243 — 显式给出连接类型 + locator
+// :303 — 显式给出连接类型 + locator
 template <class Env>
 inline void initializeHeartbeatAndAlertComponent(
     Env *env
@@ -113,7 +113,7 @@ inline void initializeHeartbeatAndAlertComponent(
     , std::optional<UserToWireHook> hook = std::nullopt
 );
 
-// :338 — 用信道描述字符串（推荐）
+// :434 — 用信道描述字符串（推荐）
 template <class Env>
 inline void initializeHeartbeatAndAlertComponent(
     Env *env
@@ -126,6 +126,8 @@ inline void initializeHeartbeatAndAlertComponent(
 内部按 `connType` 分发到 `HeartbeatAndAlertComponentInitializer<Env, Component>` 的特化（`:85` 起，为 multicast / RabbitMQ / ZeroMQ / Redis / NATS / NNG / shared_memory_broadcast / shm_seqlock / shm_cursor / aeron_ipc / WebSocket / Singlecast 各有特化；后三者中 shm_* 仅 Linux，aeron_ipc 另需 `TM_KIT_TRANSPORT_AERON_IPC`）。**环境里没有对应组件时抛 `std::runtime_error`**（如 `:316`："connection type Multicast not supported in environment"）。
 
 `identity` 就是 `senderDescription`——**客户端用正则匹配这个字符串来发现服务**。
+
+两个重载（后者转调前者）都会先调 `installThreadCpuLeaseProviders<Env>(env)`（`:314`，没装才装），因为它直接调组件的 `xxx_getPublisher`，不经过任何 `start()`；心跳 locator 上写 `cpu` / `senderCpu` 等绑核属性因此也能生效。要用自定义 provider，必须在调用本函数之前设置，见 [transport 线程绑核](00-overview.md#6-transport-线程绑核)。
 
 ### 4. 挂到图上：`attachHeartbeatAndAlertComponent`
 
@@ -158,12 +160,12 @@ void attachHeartbeatAndAlertComponent(
 
 "touchup" 是延迟到 `AppRunner::finalize()` 阶段执行的图修补回调（见 [tm_infra/05-app-runner.md](../tm_infra/05-app-runner.md) 的 `addTouchup`）。这里有两组与心跳/传输相关的 touchup 辅助，用途完全不同，**别混淆**：
 
-#### 6.1 `HeartbeatAndAlertComponentTouchup`（在 `HeartbeatAndAlertComponent.hpp:474`，**不在** `MultiTransportTouchups.hpp`）
+#### 6.1 `HeartbeatAndAlertComponentTouchup`（在 `HeartbeatAndAlertComponent.hpp:480`，**不在** `MultiTransportTouchups.hpp`）
 
 把"初始化 + 挂载心跳"两件事合并成一次 RAII 调用：
 
 ```cpp
-// tm_kit/transport/HeartbeatAndAlertComponent.hpp:467
+// tm_kit/transport/HeartbeatAndAlertComponent.hpp:473
 struct HeartbeatAndAlertComponentTouchupParameters {
     std::string channelDescriptor;                              // 心跳信道
     std::string topic;                                          // 心跳 topic
@@ -322,7 +324,7 @@ auto calc = transport::MultiTransportRemoteFacilityManagingUtils<R>
 
 | 维度 | 实时 | 回测 |
 |---|---|---|
-| 可用性 | ✓ | ✗ —— `attachHeartbeatAndAlertComponent` 要求 `basic::real_time_clock::ClockComponent`（`HeartbeatAndAlertComponent.hpp:442` 的 `enable_if`），回测时钟不满足 |
+| 可用性 | ✓ | ✗ —— `attachHeartbeatAndAlertComponent` 要求 `basic::real_time_clock::ClockComponent`（`HeartbeatAndAlertComponent.hpp:448` 的 `enable_if`），回测时钟不满足 |
 | 服务发现 | 心跳驱动，动态 | 配置写死（直接传固定的信道字符串给 `setupSimpleRemoteFacility`） |
 | 状态上报 | `setStatus` 周期广播 | 无对应机制 |
 | 告警 | `sendAlert` 广播到网络 | 通常只写日志 |
@@ -349,7 +351,7 @@ auto calc = transport::MultiTransportRemoteFacilityManagingUtils<R>
 
 **5. `furthestPoint` 默认 24 小时，长跑程序会停止心跳**
 
-`attachHeartbeatAndAlertComponent` 的 `furthestPoint` 默认 `std::chrono::hours(24)`（`HeartbeatAndAlertComponent.hpp:448`），ClockImporter 在这个时间点之后不再产生事件。**连续运行超过 24 小时后心跳会静默停止**，客户端开始报告服务下线。长生命周期程序必须显式放大这个值。
+`attachHeartbeatAndAlertComponent` 的 `furthestPoint` 默认 `std::chrono::hours(24)`（`HeartbeatAndAlertComponent.hpp:454`），ClockImporter 在这个时间点之后不再产生事件。**连续运行超过 24 小时后心跳会静默停止**，客户端开始报告服务下线。长生命周期程序必须显式放大这个值。
 
 **6. `attachHeartbeatAndAlertComponent` 需要实时时钟组件**
 
@@ -367,7 +369,7 @@ auto calc = transport::MultiTransportRemoteFacilityManagingUtils<R>
 
 心跳本身不引入额外的第三方库——它是 `tm_transport` 的一个普通组件，依赖所选传输的实现（见 [各传输详解](03-transports/)）。
 
-可用于承载心跳的传输（`HeartbeatAndAlertComponentInitializer` 的特化清单，`HeartbeatAndAlertComponent.hpp:85` 起）：`multicast`、`rabbitmq`、`zeromq`、`redis`、`nats`、`nng`、`shared_memory_broadcast`、`shm_seqlock`、`shm_cursor`、`aeron_ipc`、`web_socket`、`singlecast`。
+可用于承载心跳的传输（`HeartbeatAndAlertComponentInitializer` 的特化清单，`HeartbeatAndAlertComponent.hpp:86` 起）：`multicast`、`rabbitmq`、`zeromq`、`redis`、`nats`、`nng`、`shared_memory_broadcast`、`shm_seqlock`、`shm_cursor`、`aeron_ipc`、`web_socket`、`singlecast`。
 
 > 在同一进程里既发数据又发心跳到同一个 `shm_seqlock` / `shm_cursor` 段时，发布端会被两个线程调用，必须在 locator 上加 `writerLock=true`（shm_seqlock）或 `publisherLock=true`（shm_cursor），否则消息会损坏。`aeron_ipc` 没有这个开关，心跳应走另一条 channel。
 

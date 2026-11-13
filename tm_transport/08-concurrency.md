@@ -11,16 +11,16 @@ keywords: [并发, 线程安全, thread safety, 多进程, 多线程, 多写者,
 
 回答四个问题：同一信道能否**多进程写**、**多进程读**，同一进程内能否**多线程写**、**多线程读**。facility 传输另外回答多 server 进程、client 多线程调用、server 跨线程回复。
 
-结论来自阅读 `tm_transport` 源码（行号对应 tm_transport `develop` @ `ec34173`）。四种同机 IPC 传输（`shm_seqlock`、`shm_cursor`、`aeron_ipc`、`shared_memory_broadcast`）另有并发压测 `tm_transport/test/ipc_concurrency_test/`，结论标"实测"；网络和 broker 类传输只读了代码，标"潜在风险"的条目是代码层面可以构造出的竞争，未实测复现。
+结论来自阅读 `tm_transport` 源码（行号对应 tm_transport `develop` @ `ccb9a8c`）。四种同机 IPC 传输（`shm_seqlock`、`shm_cursor`、`aeron_ipc`、`shared_memory_broadcast`）另有并发压测 `tm_transport/test/ipc_concurrency_test/`，结论标"实测"；网络和 broker 类传输只读了代码，标"潜在风险"的条目是代码层面可以构造出的竞争，未实测复现。
 
-压测与修复记录见 tm_transport 仓库的 `doc/20261103-ipc-concurrency-test/README.md` 和 `doc/20261103-ipc-concurrency-bugfix/README.md`。
+压测与修复记录见 tm_transport 仓库的 `doc/20261103-ipc-concurrency-test/README.md` 和 `doc/20261103-ipc-concurrency-bugfix/README.md`；`shared_memory_broadcast` 读者竞争、取消订阅 use-after-free 的修复与 aeron_ipc untethered 默认值的回退见 `doc/20261112-ipc-thread-affinity/README.md` 和 `doc/20261113-aeron-untethered-defaults/README.md`。
 
 ## 发布函数为什么会被多线程调用
 
-`createExporter` / `createTypedExporter` 返回的 `LocalE` 是普通 `AbstractExporter`，不是 `ThreadedHandler`，`handle()` 直接在上游线程里调 `publisher_`（例如 `tm_transport/tm_kit/transport/shm_seqlock/ShmSeqlockImporterExporter.hpp:146`）。以下三种情况会让同一个底层 sender 被多个线程同时调用：
+`createExporter` / `createTypedExporter` 返回的 `LocalE` 是普通 `AbstractExporter`，不是 `ThreadedHandler`，`handle()` 直接在上游线程里调 `publisher_`（例如 `tm_transport/tm_kit/transport/shm_seqlock/ShmSeqlockImporterExporter.hpp:151`）。以下三种情况会让同一个底层 sender 被多个线程同时调用：
 
 1. **一个 sink 连了多个上游**。`MultiTransportBroadcastPublisherManagingUtils::oneBroadcastPublisher` 默认 `threaded=false`，每个上游线程都直接进 publisher。
-2. **心跳 / 告警与数据共用 locator**。`HeartbeatAndAlertComponentInitializer` 对同一 locator 调 `xxx_getPublisher`（`tm_transport/tm_kit/transport/HeartbeatAndAlertComponent.hpp:218`）。大部分组件按 locator（或其一部分）复用 sender，心跳在时钟 importer 线程发布，`sendAlert` 可来自任意线程，publisher 调用本身不加锁（`tm_transport/src/HeartbeatAndAlertComponent.cpp:56`、`:82`）。
+2. **心跳 / 告警与数据共用 locator**。`HeartbeatAndAlertComponentInitializer` 对同一 locator 调 `xxx_getPublisher`（`tm_transport/tm_kit/transport/HeartbeatAndAlertComponent.hpp:219`）。大部分组件按 locator（或其一部分）复用 sender，心跳在时钟 importer 线程发布，`sendAlert` 可来自任意线程，publisher 调用本身不加锁（`tm_transport/src/HeartbeatAndAlertComponent.cpp:56`、`:82`）。
 3. **同进程两个 exporter 指向同一信道**。
 
 图内的情况 1 可以用 `oneBroadcastPublisher(..., threaded=true)` 解决：它在 exporter 前插入一个 threaded 的 id kleisli，默认把所有上游串行到专用线程；选 SharedPool 时是同一 strand，仍串行但不固定线程。显式选 Inline 则不能据此保证串行。**它管不到情况 2**。
@@ -34,7 +34,7 @@ keywords: [并发, 线程安全, thread safety, 多进程, 多线程, 多写者,
 | `shm_seqlock` | ✗ `flock` 强制单发布进程 | ✓ | ✗ 默认；`writerLock=true` 后 ✓ | ✓ 每段一条读线程 | ✗ 除非**所有** locator 都带 `writerLock=true` |
 | `shm_cursor` | ✗ `flock` 强制单发布进程 | ✓ | ✗ 默认；`publisherLock=true` 后 ✓ | ✓ 每段一条读线程 | ✗ 除非**所有** locator 都带 `publisherLock=true` |
 | `aeron_ipc` | ⚠ 可以，每进程一个 session，跨发布者无序 | ✓ | ✗ 无开关 | ✓ 每 locator 一条轮询线程；回调勿长时间阻塞 | ✗ |
-| `shared_memory_broadcast` | ⚠ 段不排他，未实测出问题，不建议 | ✓ 每读者独立队列 | ✗ 实测崩溃/挂起 | ✓ 多读者组件已修复 | ✗ |
+| `shared_memory_broadcast` | ⚠ 段不排他，未实测出问题，不建议 | ✓ 每读者独立队列 | ✓ `publish` 持 `listMutex`；读者竞争已修复（实测） | ✓ 多读者组件已修复 | ✓ 同多线程写 |
 | `multicast` | ✓ 跨发送者无序 | ✓ `reuse_address` | ✓ 发送端加锁 | ✓ | ✓ |
 | `singlecast` | ✓ 跨发送者无序 | ✗ 端口只能一个读进程 | ✗ 无锁 | ✓ | ✗ |
 | `zeromq` | ✗ tcp 下发布端 bind，端口独占 | ✓ | ✓ 发送端加锁 | ✓ | ✓ |
@@ -57,7 +57,7 @@ keywords: [并发, 线程安全, thread safety, 多进程, 多线程, 多写者,
 | `shm_seqlock` | ✗ 撕裂数据，读端无法检测（实测约 15–25% 消息损坏） | **所有**指向该段的 locator（含心跳）加 `writerLock=true`；或心跳走独立段 |
 | `shm_cursor` | ✗ 撕裂数据（实测约 5–9%） | **所有** locator 加 `publisherLock=true`；或心跳走独立段 |
 | `aeron_ipc` | ✗ 共享 log buffer 被写坏，所有读者受影响 | 无选项。图内用 `oneBroadcastPublisher(..., threaded=true)`；心跳/告警走独立 stream，或在 `aeron_ipc_getPublisher` 返回的函数外自加 mutex |
-| `shared_memory_broadcast` | ✗ 实测 SIGSEGV / 挂起（共享内存分配器不支持并发） | 无选项。同 aeron_ipc：图内 `threaded=true`，心跳走独立段，或外部加 mutex |
+| `shared_memory_broadcast` | ✓ `publish` 全程持跨进程 `listMutex`，多写者被串行化。早期实测的 SIGSEGV 来自读者切换链尾的竞争，tm_transport `ccb9a8c` 已修复（修复前的版本仍按 ✗ 处理） | 不需要；多个写线程会在 `listMutex` 上互相等待 |
 | `singlecast` | ✗ Asio socket 无锁共享 | 无选项。外部串行化，心跳走独立 locator |
 | `multicast` / `zeromq` / `nng` / `rabbitmq` / `redis` / `nats` | ✓ 发送端加锁 | 不需要 |
 | `websocket` | ⚠ 加锁，但客户端断开时会自锁 | 无选项。避免多线程同时发布，或在客户端断开不频繁的场景使用 |
@@ -96,7 +96,7 @@ keywords: [并发, 线程安全, thread safety, 多进程, 多线程, 多写者,
 ### 通用：图内多上游与心跳
 
 - **图内多个上游连到同一个 sink**：调用 `oneBroadcastPublisher(..., threaded=true)`。这是所有"无锁"传输在图内的标准解法。
-- **心跳 / 告警与数据共用 locator**：`threaded=true` 管不到。对 `shm_seqlock` / `shm_cursor` 在所有 locator 上加锁属性；对 `aeron_ipc` / `shared_memory_broadcast` / `singlecast` 让心跳走独立信道。
+- **心跳 / 告警与数据共用 locator**：`threaded=true` 管不到。对 `shm_seqlock` / `shm_cursor` 在所有 locator 上加锁属性；对 `aeron_ipc` / `singlecast` 让心跳走独立信道（`shared_memory_broadcast` 自 `ccb9a8c` 起可以共用）。
 
 ### 所有广播组件共有的两点
 
@@ -119,85 +119,87 @@ keywords: [并发, 线程安全, thread safety, 多进程, 多线程, 多写者,
 
 ### shm_seqlock
 
-- **多进程写**：发布者对 `/dev/shm/<段名>.lock` 取 `LOCK_EX|LOCK_NB`，失败即抛 "another live publisher holds ..."（`tm_transport/src/shm_seqlock/ShmSeqlockComponent.cpp:305`）。
-- **多线程写，默认 `writerLock=false`**：`publish()` 里的 `next_`、`lastTopic_`（`std::string`）、`lastTopicHash_` 都没有同步（`ShmSeqlockComponent.cpp:450`）。并发调用的后果：
+- **多进程写**：发布者对 `/dev/shm/<段名>.lock` 取 `LOCK_EX|LOCK_NB`，失败即抛 "another live publisher holds ..."（`tm_transport/src/shm_seqlock/ShmSeqlockComponent.cpp:307`）。
+- **多线程写，默认 `writerLock=false`**：`publish()` 里的 `next_`、`lastTopic_`（`std::string`）、`lastTopicHash_` 都没有同步（`ShmSeqlockComponent.cpp:452`）。并发调用的后果：
   - 两个线程拿到同一个 `next_`，写同一个 slot。一个线程的偶数提交 seq 让读者认为 slot 已完成，另一个线程还在 memcpy，读者拿到**通过 seqlock 校验的撕裂数据**，无法检测。
   - `lastTopic_ = topic` 并发赋值是 `std::string` 数据竞争（UB，可能堆损坏）；`topicHash` 可能与 topic 不匹配，读端按 hash 过滤时消息被分错或丢掉。
-- **`writerLock=true`**：主路径由 `atomic_flag` 自旋锁保护（`:459`、`:537`），可安全多线程写（实测 4 线程无损坏）。锁外的 futex 唤醒段计数 `emptyWakes_` / `waiterResets_` 和 `reject()` 的 `rejected_` 已改为原子 RMW（`:244`–`:250`、`:544`–`:550`），不再丢计数。持锁线程被抢占时其他发布线程空转，会拉高尾延迟。
+- **`writerLock=true`**：主路径由 `atomic_flag` 自旋锁保护（`:461`、`:539`），可安全多线程写（实测 4 线程无损坏）。锁外的 futex 唤醒段计数 `emptyWakes_` / `waiterResets_` 和 `reject()` 的 `rejected_` 已改为原子 RMW（`:246`–`:252`、`:546`–`:552`），不再丢计数。持锁线程被抢占时其他发布线程空转，会拉高尾延迟。
 - **多线程读**：每段每个组件一条读线程，回调串行。读端属性由该段第一个订阅决定。
 
 ### shm_cursor
 
-- **多进程写**：独占 `flock`，重试约 2 秒后抛错（`tm_transport/src/shm_cursor/ShmCursorComponent.cpp:248`）。
-- **多线程写，默认 `publisherLock=false`**：`next_++` 不是原子操作（`:379`）。
+- **多进程写**：独占 `flock`，重试约 2 秒后抛错（`tm_transport/src/shm_cursor/ShmCursorComponent.cpp:250`）。
+- **多线程写，默认 `publisherLock=false`**：`next_++` 不是原子操作（`:381`）。
   - 两线程拿到同一个 `i`，写同一个 slot。
-  - 拿到不同 `i` 也不行：A 写 slot i、B 写 slot i+1，B 先 `commit.store(i+1)`，读者就去读 A 还在写的 slot。读端的覆盖检测只看 `claim >= j + slotCount`（`:705`），这种情况检测不到，会交付撕裂数据。`commit` 还可能倒退。
-- **`publisherLock=true`**：锁覆盖 claim、写数据、commit 和 futex 唤醒（`:373`），`reject` 用 `fetch_add`（`:211`），可安全多线程写。
-- **多线程读**：每段一条读线程；客户端集合在 `clientsMutex_` 下更新，读线程靠 `version_` 感知变化，热路径不取锁（`:437`–`:441`）。
+  - 拿到不同 `i` 也不行：A 写 slot i、B 写 slot i+1，B 先 `commit.store(i+1)`，读者就去读 A 还在写的 slot。读端的覆盖检测只看 `claim >= j + slotCount`（`:711`），这种情况检测不到，会交付撕裂数据。`commit` 还可能倒退。
+- **`publisherLock=true`**：锁覆盖 claim、写数据、commit 和 futex 唤醒（`:375`），`reject` 用 `fetch_add`（`:213`），可安全多线程写。
+- **多线程读**：每段一条读线程；客户端集合在 `clientsMutex_` 下更新，读线程靠 `version_` 感知变化，热路径不取锁（`:439`–`:443`）。
 
 ### seqlock / cursor 的配置陷阱：第一个 locator 决定属性
 
-两者的 sender 都**只按 identifier（段名）**复用，属性（包括 `writerLock` / `publisherLock`）由本进程里第一个用到该段的 locator 决定（seqlock `ShmSeqlockComponent.cpp:1082`，cursor `ShmCursorComponent.cpp:971`）。心跳通常在建图之前初始化：如果只在 exporter 的 channel spec 里写了锁属性、心跳 locator 没写，实际生效的是**无锁版本**，没有任何报错。要么给所有指向该段的 locator 都加锁属性，要么让心跳走独立的段。
+两者的 sender 都**只按 identifier（段名）**复用，属性（包括 `writerLock` / `publisherLock`）由本进程里第一个用到该段的 locator 决定（seqlock `ShmSeqlockComponent.cpp:1135`，cursor `ShmCursorComponent.cpp:1044`）。心跳通常在建图之前初始化：如果只在 exporter 的 channel spec 里写了锁属性、心跳 locator 没写，实际生效的是**无锁版本**，没有任何报错。要么给所有指向该段的 locator 都加锁属性，要么让心跳走独立的段。
 
 ### aeron_ipc
 
-- **多进程写**：没有 `flock`。每个发布进程是 Aeron 的一个独立 session，读者按 session 区分并处理 `joinLatest`（`tm_transport/src/aeron_ipc/AeronIpcComponent.cpp:627`–`:673`）。可以多进程写，但不同发布者之间**没有顺序保证**，读者可能看到交错。
-- **多线程写：不支持，也没有开关**。底层是 `aeron_exclusive_publication_try_claim`（`:454`），Exclusive publication 规定单线程使用（头文件说明 `tm_transport/tm_kit/transport/aeron_ipc/AeronIpcComponent.hpp:57`）。并发 claim 时 term offset 的推进不是原子的，两个 claim 可能重叠、帧头互相覆盖，损坏的是**共享 log buffer**，影响所有读者（malformed、读者卡在异常帧长、image 失效），比丢一条消息严重得多。
-- **共享规则**：`publishers_` 以完整 `ConnectionLocator` 为 key（`:952`、`:980`），`operator==` 比较包括属性在内的全部字段（`tm_transport/src/ConnectionLocator.cpp:188`）。心跳与 exporter 的 locator 完全相同时共用一个 exclusive publication，发生上述竞争；属性不同时会在同一个 stream 上再建一个 publication（另一个 session），则不冲突。
+- **多进程写**：没有 `flock`。每个发布进程是 Aeron 的一个独立 session，读者按 session 区分并处理 `joinLatest`（`tm_transport/src/aeron_ipc/AeronIpcComponent.cpp:656`–`:702`）。可以多进程写，但不同发布者之间**没有顺序保证**，读者可能看到交错。
+- **多线程写：不支持，也没有开关**。底层是 `aeron_exclusive_publication_try_claim`（`:481`），Exclusive publication 规定单线程使用（头文件说明 `tm_transport/tm_kit/transport/aeron_ipc/AeronIpcComponent.hpp:75`）。并发 claim 时 term offset 的推进不是原子的，两个 claim 可能重叠、帧头互相覆盖，损坏的是**共享 log buffer**，影响所有读者（malformed、读者卡在异常帧长、image 失效），比丢一条消息严重得多。
+- **共享规则**：`publishers_` 以完整 `ConnectionLocator` 为 key（`:1029`、`:1057`），`operator==` 比较包括属性在内的全部字段（`tm_transport/src/ConnectionLocator.cpp:188`）。心跳与 exporter 的 locator 完全相同时共用一个 exclusive publication，发生上述竞争；属性不同时会在同一个 stream 上再建一个 publication（另一个 session），则不冲突。
 - **规避**：心跳走独立 stream；或在 `aeron_ipc_getPublisher` 返回的函数外自行加 mutex；或给组件增加改用 `aeron_publication_t`（线程安全，claim 多一次 CAS）的选项（当前代码未提供）。
-- **多线程读**：每 locator 一条轮询线程，回调在该线程执行，`kFragmentLimit=64`（`:508`）。
+- **多线程读**：每 locator 一条轮询线程，回调在该线程执行，`kFragmentLimit=64`（`:536`）。
 
 #### aeron_ipc 慢读者（untethered，默认 `tether=false`）
 
 - **现象（修复前，实测）**：同一 stream 上有多个读者（例如多个组件）时，若某读者的回调停顿超过 `untetheredWindowLimitTimeoutMs + untetheredLingerTimeoutMs`，driver 把它移出流控，publisher 随快读者往前写并清零、复用该读者正在读的 term。fragment handler 拿到的是指向共享 term buffer 的零拷贝指针，回调期间数据被改写，client 收到坏数据，`malformed` 仍为 0。单读者时不会触发（LINGER 状态仍参与 `min_sub_pos`）；`tether=true` 不受影响。
 - **修复后行为**：
-  1. 默认超时从 10ms / 10ms 调到 **2000ms / 2000ms**（`:400`–`:401`），慢读者在被踢出前约有 4 秒保护期。可用 locator 属性 `untetheredWindowLimitTimeoutMs` / `untetheredLingerTimeoutMs` 覆盖；调小可以让慢读者更快不再反压 publisher，但保护期也随之缩短。
-  2. `handleFragment()` 先快照帧头，把整帧拷到轮询线程私有的缓冲区，再复核帧头（`:627`–`:673`）；不一致说明 term 已被清零或轮转，丢弃该帧并计入 `AeronIpcSubscriberStats::overrun`（`AeronIpcComponent.hpp:74`）。client 回调只读本地拷贝。
+  1. 默认超时：`05962f6` 曾从 10ms / 10ms 调到 2000ms / 2000ms，但慢读者在被踢出前会一直反压 publisher，`backPressure=drop` 下这段时间**所有读者**（包括快读者）都丢消息（aeron_ipc_test 的 test3 因此失败）。tm_transport `8bb9d5c` 已改回 **10ms / 10ms**（`:426`–`:427`），正确性由下面第 2 点保证。需要更长保护期时用 locator 属性 `untetheredWindowLimitTimeoutMs` / `untetheredLingerTimeoutMs` 调大，代价是慢读者拖累全体。
+  2. `handleFragment()` 先快照帧头，把整帧拷到轮询线程私有的缓冲区，再复核帧头（`:656`–`:702`）；不一致说明 term 已被清零或轮转，丢弃该帧并计入 `AeronIpcSubscriberStats::overrun`（`AeronIpcComponent.hpp:93`）。client 回调只读本地拷贝。
   3. 代价：每条消息多一次 memcpy。256B payload 下 p50 约 +7%–14%（+35–60ns），p99 约 +2%–3%（每组 2 个有效样本）。
 - **仍需注意**：回调停顿超过保护期后再加上 Aeron 客户端的 `aeron.client.resource.linger.duration`（默认 3s），log buffer 可能被释放（上游 [aeron#1675](https://github.com/aeron-io/aeron/issues/1675)）。不要在订阅回调里做长时间阻塞的工作；需要慢处理时在回调里拷贝后转交其他线程。
 - **选项**：需要"慢读者绝不丢数据、可以拖住发布者"时用 `tether=true`（配合 `backPressure=retry` 时发布端会被阻塞）。
 
 ### shared_memory_broadcast
 
-基于 Boost.Interprocess，`open_or_create` 打开段，没有排他机制（`tm_transport/src/shared_memory_broadcast/SharedMemoryBroadcastComponent.cpp:437`）。每个订阅者登记一条记录和自己的队列，发布者把消息复制到每个活跃订阅者的队列尾部，用 CAS 追加。sender 按 identifier 复用（`:605`）。
+基于 Boost.Interprocess，`open_or_create` 打开段，没有排他机制（`tm_transport/src/shared_memory_broadcast/SharedMemoryBroadcastComponent.cpp:519`）。每个订阅者登记一条记录和自己的队列，发布者把消息复制到每个活跃订阅者的队列尾部，用 CAS 追加。sender 按 identifier 复用（`:712`）。
 
-- **多读者组件（已修复，实测）**：修复前 `publish()` 无锁遍历订阅者链表，订阅者析构并发 `destroy_ptr` 节点，发布端 SIGSEGV（单写者、3 组件 × 3 client 即可复现）。现在头节点 `SharedMemoryBroadcastClientListItem` 内有进程间互斥量 `listMutex`（`:53`），`publish()` 遍历期间（`:462`–`:466`）和订阅者析构释放节点之前（`:292`）都持有它。
+- **多读者组件（已修复，实测）**：修复前 `publish()` 无锁遍历订阅者链表，订阅者析构并发 `destroy_ptr` 节点，发布端 SIGSEGV（单写者、3 组件 × 3 client 即可复现）。现在头节点 `SharedMemoryBroadcastClientListItem` 内有进程间互斥量 `listMutex`（`:55`），`publish()` 遍历期间（`:544`–`:548`）、订阅者析构释放节点之前（`:359`）以及读线程切换链尾时（`swapTail()`，`:148`）都持有它。
   - **布局变更**：头节点结构变了，新旧二进制不能共用同一个段；升级前删除 `/dev/shm/` 下的旧段。
   - 订阅 churn 期间可能出现少量重复 / 乱序（新订阅者会收到注册前瞬间的消息），属于设计特性。
-- **多线程写（不支持，实测）**：4 线程无锁并发写会 SIGSEGV 或挂起。`listMutex` 只保护链表遍历，共享内存分配器 `mem_.construct` 仍不支持同进程多线程并发调用。无锁选项；图内用 `threaded=true`，心跳走独立段，或在外部加 mutex。
+- **读者切换链尾的竞争（已修复，实测）**：读线程原先无锁切换 tail 后立即释放旧链，发布者可能还在对旧链尾节点做 CAS，导致 SIGSEGV 或消息挂在已释放节点上丢失（单发布线程也能复现）。`ccb9a8c` 起 `swapTail()` 在 `listMutex` 下进行，共享内存布局不变。`ipc_concurrency_test` 的 4 写者图用例修复前 12 次中 3 次 SIGSEGV，修复后 30/30 全收齐。
+- **多线程写（`ccb9a8c` 起支持，实测）**：`publish()` 全程持有 `listMutex`，多写者本就被串行化；早期结论"4 线程无锁并发写 SIGSEGV / 挂起"的原因是上一条的读者竞争，而不是分配器并发。修复后 `ipc_concurrency_test` 中 shared_memory_broadcast 的多写用例全部通过。旧版本仍需图内 `threaded=true` 或外部加 mutex。
 - **多进程写**：段不排他，压测中未观察到问题，但发布路径与失效订阅者清理没有按多写者验证，不建议。
-- 其他潜在风险（读代码得出，未实测）：读线程已 `detach`（`:279`），析构里的 `join` 抛出的异常被吞掉；唤醒用进程内互斥量，`notify_one` 不持锁，可能丢唤醒，最多多等约 1 秒。
+- **取消订阅（已修复）**：读线程原先被 `detach`，析构里对它 `join` 必然抛异常被吞掉，随后立刻释放读线程仍在使用的共享内存，取消订阅时可稳定复现 SIGSEGV。现在析构先 join 读线程再释放（`:341`–`:353`，阻塞等待模式最长约 1 秒；从自身回调里析构时退化为 detach），订阅销毁移到组件锁之外。
+- 其他潜在风险（读代码得出，未实测）：唤醒用进程内互斥量，`notify_one` 不持锁，可能丢唤醒，最多多等约 1 秒。
 
 ## 网络广播传输
 
 ### multicast
 
 - **多进程写**：发送端设 `reuse_address`，多进程可同时发；跨发送者无序。超过 1200 字节的负载被静默丢弃。
-- **多进程读**：订阅端 `reuse_address(true)` 后 bind `0.0.0.0:port` 并 join 组（`tm_transport/src/multicast/MulticastComponent.cpp:187`–`:190`），每进程各收一份。由于绑定 `0.0.0.0:port`，Linux 上同端口的其他组也会被收到（`IP_MULTICAST_ALL` 默认开），`ignoreTopic` / Binary 编码下没有 topic 过滤兜底。loopback 保持系统默认（开），同机发送者会收到自己的消息。
-- **多线程写**：`set_option(hops)` 和 `async_send_to` 都在发送端 `mutex_` 内（`:552`–`:564`），安全。sender 按 `{host,port}` 复用（`:628`）。
+- **多进程读**：订阅端 `reuse_address(true)` 后 bind `0.0.0.0:port` 并 join 组（`tm_transport/src/multicast/MulticastComponent.cpp:192`–`:195`），每进程各收一份。由于绑定 `0.0.0.0:port`，Linux 上同端口的其他组也会被收到（`IP_MULTICAST_ALL` 默认开），`ignoreTopic` / Binary 编码下没有 topic 过滤兜底。loopback 保持系统默认（开），同机发送者会收到自己的消息。
+- **多线程写**：`set_option(hops)` 和 `async_send_to` 都在发送端 `mutex_` 内（`:590`–`:602`），安全。sender 按 `{host,port}` 复用（`:712`）。
 - **数据与心跳共用 locator**：安全，但 exporter 默认 `ttl=0`、心跳 `ttl=1`，交替发布时每次切换都会多一次 `setsockopt`；`ttl=0` 也意味着数据不出本机，需要跨机时在 locator 上写明 `ttl`。
 - 启用 `MULTICAST_COMPONENT_SENDER_USE_ZERO_COPY_BUFFER` 时，缓冲池（1024 块）耗尽会返回空指针并被解引用，多线程突发流量下可能崩溃。
 
 ### singlecast
 
 - **多进程写**：发送 socket 不 bind，各进程用临时端口，可以多进程发；跨发送者无序；超过 1200 字节静默丢弃。
-- **多进程读：不支持**。订阅端 bind `0.0.0.0:port` 且没有 `reuse_address`（`tm_transport/src/singlecast/SinglecastComponent.cpp:167`–`:174`），第二个进程 bind 失败抛异常。订阅按 `{host,port}` 区分（`:342`），但实际都绑 `0.0.0.0`，同端口不同 host 的两个 locator 在同一进程里也会 bind 失败。
-- **多线程写：不安全**。`publish` 不加锁，多个线程直接在同一个 socket 上调 `async_send_to`（`:294`–`:320`），同时 sender 自己的 io 线程在跑完成回调；Asio socket 对象不支持这种共享。sender 按 `{host,port}` 复用（`:387`），心跳与 exporter 共用 locator 时就会出现这种情况。
-- 订阅析构只 `close()` socket，持有 work guard 的读线程不会退出，每次订阅/退订泄漏一条线程。
+- **多进程读：不支持**。订阅端 bind `0.0.0.0:port` 且没有 `reuse_address`（`tm_transport/src/singlecast/SinglecastComponent.cpp:177`–`:184`），第二个进程 bind 失败抛异常。订阅按 `{host,port}` 区分（`:382`），但实际都绑 `0.0.0.0`，同端口不同 host 的两个 locator 在同一进程里也会 bind 失败。
+- **多线程写：不安全**。`publish` 不加锁，多个线程直接在同一个 socket 上调 `async_send_to`（`:319`–`:345`），同时 sender 自己的 io 线程在跑完成回调；Asio socket 对象不支持这种共享。sender 按 `{host,port}` 复用（`:476`），心跳与 exporter 共用 locator 时就会出现这种情况。
+- 订阅析构 `close()` socket 后读线程的 `run()` 随即返回：`ccb9a8c` 起读线程不再持 work guard，`io_context` 由订阅与读线程通过 `shared_ptr` 共同持有，不再每次订阅/退订泄漏一条线程。
 
 ### zeromq
 
-- **多进程写**：tcp 模式下发布端固定 `bind("tcp://*:"+port)`，忽略 locator 的 host（`tm_transport/src/zeromq/ZeroMQComponent.cpp:212`、`:216`），第二个进程 bind 同一端口抛 `zmq::error_t`。PUB 只能有一个进程。
+- **多进程写**：tcp 模式下发布端固定 `bind("tcp://*:"+port)`，忽略 locator 的 host（`tm_transport/src/zeromq/ZeroMQComponent.cpp:289`、`:297`），第二个进程 bind 同一端口抛 `zmq::error_t`。PUB 只能有一个进程。
 - **多进程读**：每个订阅者 connect 并 subscribe 空前缀，在客户端过滤 topic。
-- **多线程写**：`publish` 整体在 `mutex_` 内，包括序列化与 `send`（`:224`–`:235`）；这把锁也提供了 libzmq 在线程间移交 socket 所需的内存屏障。sender 按 `(host,port,identifier)` 复用（`:265`），心跳与 exporter 共用一个 socket，不会重复 bind。`send` 用 `dontwait`，到达 HWM 后**静默丢消息**。
+- **多线程写**：`publish` 整体在 `mutex_` 内，包括序列化与 `send`（`:305`–`:316`）；这把锁也提供了 libzmq 在线程间移交 socket 所需的内存屏障。sender 按 `(host,port,identifier)` 复用（`:366`），心跳与 exporter 共用一个 socket，不会重复 bind。`send` 用 `dontwait`，到达 HWM 后**静默丢消息**。
 - 超过 16 MB 的消息被丢弃。`inproc` 要求发布与订阅在同一个组件内（共享 `ctx_`）。
 
 ### nng
 
-- **多进程写**：tcp 模式 `listen("tcp://*:"+port)`（`tm_transport/src/nng/NNGComponent.cpp:220`–`:222`），端口独占；只支持 `ipc` 和 `tcp`。
+- **多进程写**：tcp 模式 `listen("tcp://*:"+port)`（`tm_transport/src/nng/NNGComponent.cpp:257`–`:259`），端口独占；只支持 `ipc` 和 `tcp`。
 - **多进程读**：每个订阅者独立 dial。潜在风险（未实测）：连续约 10 秒收不到消息后，代码会在同一个 socket 上再次 dial，而 nng dialer 本身会自动重连，可能形成重复 pipe、收到重复消息。
-- **多线程写**：序列化在锁外，`send` 在 `mutex_` 内（`:230`–`:239`），安全；`nonblock` 发送，可能丢消息。sender 按 locator 复用（`:269`）。
-- 析构里显式调 `sock_.~socket()`（`:227`），之后成员析构会再关一次。
+- **多线程写**：序列化在锁外，`send` 在 `mutex_` 内（`:267`–`:276`），安全；`nonblock` 发送，可能丢消息。sender 按 locator 复用（`:321`）。
+- 析构里显式调 `sock_.~socket()`（`:264`），之后成员析构会再关一次。
 
 ### websocket（广播）
 

@@ -84,7 +84,7 @@ tm_infra  ──►  tm_basic  ──►  tm_transport  ──►  tm_examples
 
 | # | 章节 | 关键词 | 覆盖头文件 |
 |---|---|---|---|
-| 00 | [概览](tm_transport/00-overview.md) | ConnectionLocator、信道字符串、能力矩阵 | `ConnectionLocator.hpp` |
+| 00 | [概览](tm_transport/00-overview.md) | ConnectionLocator、信道字符串、能力矩阵、transport 线程绑核 | `ConnectionLocator.hpp`, `ThreadCpuLeaseProvider.hpp` |
 | 01 | [广播](tm_transport/01-broadcast.md) | listener / publisher / 心跳服务发现 | `MultiTransportBroadcast*Utils.hpp` |
 | 02 | [远程设施](tm_transport/02-facilities.md) | 请求-响应、服务端包装、合成设施 | `MultiTransportRemoteFacility*.hpp` |
 | 03 | [各传输详解](tm_transport/03-transports/) | 12 个传输的 locator 语法与能力（见下表） | 各传输子目录 |
@@ -156,6 +156,7 @@ tm_infra  ──►  tm_basic  ──►  tm_transport  ──►  tm_examples
 | 把 facility 暴露给 C#/Python/前端 | [03-transports/grpc_interop](tm_transport/03-transports/grpc_interop.md)、[websocket](tm_transport/03-transports/websocket.md)、[json_rest](tm_transport/03-transports/json_rest.md) |
 | 让两个 runner 交错回测 | [tm_basic/10](tm_basic/10-app-runner-utils.md) |
 | 忙线程自动绑核 / 多进程不抢同一核 | [tm_basic/11](tm_basic/11-hwloc-cpu-allocator.md) |
+| 把传输的接收 / 发送线程绑到指定核 | [tm_transport/00 §6](tm_transport/00-overview.md#6-transport-线程绑核) |
 | 输出 Graphviz 图 | [tm_infra/05](tm_infra/05-app-runner.md) |
 
 ## 按头文件查

@@ -2,7 +2,7 @@
 title: Multicast 传输
 library: tm_transport
 headers: [tm_kit/transport/multicast/MulticastComponent.hpp, tm_kit/transport/multicast/MulticastImporterExporter.hpp]
-keywords: [multicast, MulticastComponent, MulticastImporterExporter, UDP 组播, 网卡, interface, envelop, ignoreTopic, 同网段, 无 broker, 行情分发]
+keywords: [multicast, MulticastComponent, MulticastImporterExporter, UDP 组播, 网卡, interface, envelop, ignoreTopic, 同网段, 无 broker, 行情分发, cpu, senderCpu, 发送线程, 绑核, multicast_setThreadCpuLease]
 ---
 
 # Multicast 传输
@@ -26,14 +26,18 @@ namespace dev::cd606::tm::transport::multicast
 
 ## 核心类型与签名
 
-### 1. `MulticastComponent`（`MulticastComponent.hpp:22`）
+### 1. `MulticastComponent`（`MulticastComponent.hpp:23`）
 
-Environment 组件。提供 `multicast_threadHandles()` 用于诊断，以及 `struct NoTopicSelection {}` 用于 topic 参数。
+Environment 组件。提供 `multicast_threadHandles()` 用于诊断，`struct NoTopicSelection {}` 用于 topic 参数，以及接收/发送线程绑核 provider 的注入接口：
+
+```cpp
+void multicast_setThreadCpuLease(ThreadCpuLeaseProvider provider);   // :50，只能设一次，第二次抛 std::logic_error
+```
 
 ### 2. Locator 语法
 
 ```
-multicast://groupAddress:port[envelop=cbor][ignoreTopic=false][interface=eth0]
+multicast://groupAddress:port[envelop=cbor][ignoreTopic=false][interface=eth0][cpu=none][senderCpu=none]
 ```
 
 | 字段 | 含义 | 默认 |
@@ -41,11 +45,13 @@ multicast://groupAddress:port[envelop=cbor][ignoreTopic=false][interface=eth0]
 | `host` | 组播组地址（如 `239.255.0.1`） | —— |
 | `port` | 端口 | —— |
 | `identifier` | 未使用 | —— |
-| `envelop` | topic 编码方式 | `cbor`（`src/multicast/MulticastComponent.cpp:588`） |
-| `ignoreTopic` | 为 `true` 时把信封强制为 `binary`（不带 topic） | `false`（`:538`） |
-| `interface` | 指定发送/接收网卡 | `""`（由系统路由决定，`:541`） |
+| `envelop` | topic 编码方式 | `cbor`（`src/multicast/MulticastComponent.cpp:641`） |
+| `ignoreTopic` | 为 `true` 时把信封强制为 `binary`（不带 topic） | `false`（`:642`） |
+| `interface` | 指定发送/接收网卡 | `""`（由系统路由决定，`:645`） |
+| `cpu` | 该 `host:port` 接收线程绑核，`CpuBindingSpec` 语法（不能含逗号，用区间） | 不绑 |
+| `senderCpu` | 组件级共享发送线程绑核，由**第一次** `getPublisher` 的 locator 决定 | 不绑 |
 
-`envelop` 的取值（`src/multicast/MulticastComponent.cpp:25` 的 `parseEncodingChoice`）：
+`envelop` 的取值（`src/multicast/MulticastComponent.cpp:27` 的 `parseEncodingChoice`）：
 
 | 取值 | 含义 |
 |---|---|
@@ -53,13 +59,13 @@ multicast://groupAddress:port[envelop=cbor][ignoreTopic=false][interface=eth0]
 | `"binary"` / `"raw-binary"` | 纯二进制，无 topic |
 | `"binary-adhoc"` | 另一种二进制信封格式 |
 
-### 3. 工厂：`MulticastImporterExporter<M>`（`MulticastImporterExporter.hpp:18`）
+### 3. 工厂：`MulticastImporterExporter<M>`（`MulticastImporterExporter.hpp:20`）
 
 ```cpp
 template <class M>
 class MulticastImporterExporter {
 public:
-    // :21 / :66
+    // :23 / :69
     static std::shared_ptr<typename M::template Importer<basic::ByteDataWithTopic>>
     createImporter(
         ConnectionLocator const &locator
@@ -71,7 +77,7 @@ public:
     static std::shared_ptr<typename M::template Importer<basic::TypedDataWithTopic<T>>>
     createTypedImporter(...);
 
-    // :117 / :159 — 导出器；heartbeatName 用于服务发现
+    // :121 / :164 — 导出器；heartbeatName 用于服务发现
     static std::shared_ptr<typename M::template Exporter<basic::ByteDataWithTopic>>
     createExporter(
         ConnectionLocator const &locator
@@ -84,7 +90,7 @@ public:
 };
 ```
 
-同一 `host:port` 只建立一个底层订阅（`src/multicast/MulticastComponent.cpp:584` 的 `subscriptions_` 按 `ConnectionLocator{host,port}` 索引，**忽略属性**），多个 topic 过滤条件挂在同一订阅上。
+同一 `host:port` 只建立一个底层订阅（`src/multicast/MulticastComponent.cpp:637` 的 `subscriptions_` 按 `ConnectionLocator{host,port}` 索引，**忽略属性**），多个 topic 过滤条件挂在同一订阅上。
 
 ### 4. 原生不支持 on-order facility，但可用合成设施绕过
 
@@ -97,7 +103,7 @@ public:
 `tm_examples/` 中暂无 multicast 的直接用例。以下为按头文件签名构造的最小骨架：
 
 ```cpp
-// 来源：tm_kit/transport/multicast/MulticastImporterExporter.hpp:21 签名（示例代码库中暂无用例）
+// 来源：tm_kit/transport/multicast/MulticastImporterExporter.hpp:23 签名（示例代码库中暂无用例）
 using Env = infra::Environment<
     infra::CheckTimeComponent<false>,
     infra::TrivialExitControlComponent,
@@ -145,15 +151,19 @@ auto subscriber = transport::multicast::MulticastImporterExporter<M>
 
 **2. `ignoreTopic=true` 会强制把 `envelop` 覆盖为 `binary`**
 
-`src/multicast/MulticastComponent.cpp:589` 明确：`ignoreTopic` 为 true 时 `choice` 被**重新赋值**为 `Binary`，覆盖你写的 `envelop`。也就是说订阅端用 `ignoreTopic=true` 而发布端用默认 `envelop=cbor` 时，接收方会按纯二进制解析带 CBOR 信封的数据，得到乱码。
+`src/multicast/MulticastComponent.cpp:642` 明确：`ignoreTopic` 为 true 时 `choice` 被**重新赋值**为 `Binary`，覆盖你写的 `envelop`。也就是说订阅端用 `ignoreTopic=true` 而发布端用默认 `envelop=cbor` 时，接收方会按纯二进制解析带 CBOR 信封的数据，得到乱码。
 
 **3. 多网卡机器必须指定 `interface`**
 
-`interface` 默认为空串（`:541`），由系统路由决定用哪块网卡。多网卡（如同时接行情网和办公网）的机器上，不指定 `interface` 可能发到错误的网卡，表现为"同网段的其他机器收不到"。
+`interface` 默认为空串（`:645`），由系统路由决定用哪块网卡。多网卡（如同时接行情网和办公网）的机器上，不指定 `interface` 可能发到错误的网卡，表现为"同网段的其他机器收不到"。
 
 **4. 同一 `host:port` 的多个订阅共享一个底层 socket，但属性不同不会分别生效**
 
-`subscriptions_` 的 key 是 `ConnectionLocator{host, port}`（`:533`），**不含属性**。第一次建立订阅时用的 `envelop`/`interface` 决定了整个 socket 的行为；后续对同一 `host:port` 用不同 `envelop` 再订阅，不会重建 socket。要避免这一点，请对同一组播组的所有订阅使用一致的属性。
+`subscriptions_` 的 key 是 `ConnectionLocator{host, port}`（`:637`），**不含属性**。第一次建立订阅时用的 `envelop`/`interface` 决定了整个 socket 的行为；后续对同一 `host:port` 用不同 `envelop` 再订阅，不会重建 socket。要避免这一点，请对同一组播组的所有订阅使用一致的属性。`cpu` 同理：只认第一个订阅的值，后续不同值只在 stderr 警告一次。
+
+**4a. `senderCpu` 只在第一次 `getPublisher` 时生效**
+
+所有组播发布共用组件里一条异步发送线程。该线程在第一次 `multicast_getPublisher` 时启动并按该 locator 的 `senderCpu` 绑核，之后其他 locator 写不同的 `senderCpu` 只警告一次。`cpu` / `senderCpu` 都需要 provider，非 `none` 而没有 provider 时抛 `std::invalid_argument`；provider 的异常从 `addSubscriptionClient` / `getPublisher` 同步抛出。通用规则见 [transport 线程绑核](../00-overview.md#6-transport-线程绑核)。
 
 **5. 跨网段需要路由器支持**
 
@@ -175,4 +185,4 @@ Boost.Asio 官方文档：https://www.boost.org/doc/libs/release/doc/html/boost_
 - [广播](../01-broadcast.md) — 通用广播接口
 - [singlecast 传输](singlecast.md) — UDP 单播版本
 - [ZeroMQ 传输](zeromq.md) — 另一种无 broker 的一对多方案（TCP）
-- [各传输能力矩阵](../00-overview.md)
+- [各传输能力矩阵](../00-overview.md) · [transport 线程绑核](../00-overview.md#6-transport-线程绑核)

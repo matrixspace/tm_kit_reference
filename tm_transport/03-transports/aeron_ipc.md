@@ -2,7 +2,7 @@
 title: aeron_ipc 传输
 library: tm_transport
 headers: [tm_kit/transport/aeron_ipc/AeronIpcComponent.hpp, tm_kit/transport/aeron_ipc/AeronIpcImporterExporter.hpp]
-keywords: [aeron_ipc, AeronIpcComponent, AeronIpcImporterExporter, Aeron, aeron:ipc, ExclusivePublication, media driver, 嵌入式 driver, TM_KIT_TRANSPORT_AERON_IPC, 同机进程间, SPMC, 低延迟, tether, backPressure, joinLatest, AeronIpcPublisherStats, AeronIpcSubscriberStats]
+keywords: [aeron_ipc, AeronIpcComponent, AeronIpcImporterExporter, Aeron, aeron:ipc, ExclusivePublication, media driver, 嵌入式 driver, TM_KIT_TRANSPORT_AERON_IPC, 同机进程间, SPMC, 低延迟, tether, backPressure, joinLatest, AeronIpcPublisherStats, AeronIpcSubscriberStats, untetheredWindowLimitTimeoutMs, untetheredLingerTimeoutMs, overrun, driverCpu, driverBindFailed, cpu, 绑核, aeron_ipc_setThreadCpuLease, TM_AERON_IPC_DRIVER_CPU]
 ---
 
 # aeron_ipc 传输
@@ -30,7 +30,7 @@ namespace dev::cd606::tm::transport::aeron_ipc
 
 ## 核心类型与签名
 
-### 1. `AeronIpcComponent`（`tm_transport/tm_kit/transport/aeron_ipc/AeronIpcComponent.hpp:76`）
+### 1. `AeronIpcComponent`（`tm_transport/tm_kit/transport/aeron_ipc/AeronIpcComponent.hpp:95`）
 
 ```cpp
 class AeronIpcComponent {
@@ -45,10 +45,11 @@ public:
     std::unordered_map<ConnectionLocator, std::thread::native_handle_type> aeron_ipc_threadHandles();
     std::optional<AeronIpcPublisherStats> aeron_ipc_publisherStats(ConnectionLocator const &locator);
     std::optional<AeronIpcSubscriberStats> aeron_ipc_subscriberStats(ConnectionLocator const &locator);
+    void aeron_ipc_setThreadCpuLease(ThreadCpuLeaseProvider provider);   // :117，poll 线程与 driver agent 绑核 provider，只能设一次
 };
 ```
 
-统计结构（`AeronIpcComponent.hpp:60`、`:68`），计数器由发布/轮询线程用 relaxed atomic 写入：
+统计结构（`AeronIpcComponent.hpp:78`、`:87`），计数器由发布/轮询线程用 relaxed atomic 写入：
 
 | `AeronIpcPublisherStats` | 含义 |
 |---|---|
@@ -58,6 +59,7 @@ public:
 | `adminAction` | term 轮转，立即重试 |
 | `oversized` | 超过 `slotSize`，丢弃 |
 | `failed` | publication 关闭或其他错误 |
+| `driverBindFailed` | 嵌入式 driver 的 agent 线程按 `driverCpu` 绑核失败的次数（driver 照常运行） |
 
 | `AeronIpcSubscriberStats` | 含义 |
 |---|---|
@@ -68,7 +70,7 @@ public:
 | `malformed` | 格式错误的分片（topic 长度超出帧） |
 | `overrun` | 帧头复核不一致、判定 term 已被复用而丢弃的分片数；大于 0 说明有回调长时间阻塞或超时参数设置过短 |
 
-### 2. Locator 语法（`AeronIpcComponent.hpp:24`–`:57`）
+### 2. Locator 语法（`AeronIpcComponent.hpp:25`–`:75`）
 
 ```
 aeron_ipc://::::<name>[prop=value,prop=value,...]
@@ -84,41 +86,42 @@ aeron_ipc://::::<name>[prop=value,prop=value,...]
 | `slotCount` | 每个 term 大约容纳多少条 `slotSize` 消息 | `8192` |
 | `termLength` | 显式 term 长度（2 的幂，64KB..1GB），覆盖 `slotCount` | —— |
 | `wait` | `spin` / `lowcpu` | `spin` |
-| `spinCount` | 空轮询多少次后 PAUSE（spin）或睡眠（lowcpu） | spin `100000` / lowcpu `1000`（`src/aeron_ipc/AeronIpcComponent.cpp:834`） |
+| `spinCount` | 空轮询多少次后 PAUSE（spin）或睡眠（lowcpu） | spin `100000` / lowcpu `1000`（`src/aeron_ipc/AeronIpcComponent.cpp:868`） |
 | `maxSleepUs` | lowcpu 模式最长睡眠 | `1000` |
 | `joinLatest` | 读者首次看到发布者 session 时丢弃已提交积压，从最新消息开始 | `true` |
 | `tether` | `false`：慢读者不能无限期拖住发布者 | `false` |
-| `untetheredWindowLimitTimeoutMs` / `untetheredLingerTimeoutMs` / `untetheredRestingTimeoutMs` | 发布端，non-tether 读者的超时；总保护时间 = window-limit + linger，超时后读者被移出流控，publisher 可复用 term buffer | `2000` / `2000` / `100` |
+| `untetheredWindowLimitTimeoutMs` / `untetheredLingerTimeoutMs` / `untetheredRestingTimeoutMs` | 发布端，non-tether 读者的超时；总保护时间 = window-limit + linger，超时后读者被移出流控，publisher 可复用 term buffer。调大的代价见易错点 7 | `10` / `10` / `100` |
 | `backPressure` | `drop`：被背压的 claim 丢弃并计数；`retry`：自旋直到成功 | `drop` |
 | `driver` | `auto` / `embedded` / `external`（仅发布端） | `auto` |
 | `driverTimeoutMs` | driver 存活超时 | `5000` |
 | `driverThreading` | `shared` / `shared_network` / `dedicated`（仅嵌入式 driver） | `shared` |
 | `driverIdle` | `spin` / `noop` / `yield` / `backoff` / `sleeping`（仅嵌入式 driver） | `spin` |
 | `driverTimerIntervalUs` | 嵌入式 driver 定时器间隔；非 tether 读者只在此定时器上检查 | `1000` |
-| `driverCpu` | 嵌入式 driver 线程的 CPU 列表，如 `3`、`2:3`、`2-3` | `TM_AERON_IPC_DRIVER_CPU` 环境变量 |
+| `driverCpu` | 嵌入式 driver 的 agent 线程绑核，`CpuBindingSpec` 语法，如 `3`、`2:3`、`2-3`、`auto`、`numa:0`（旧写法仍有效）。需要 provider；失败计入 `driverBindFailed`，见易错点 8 | `TM_AERON_IPC_DRIVER_CPU` 环境变量；都没有时沿用 Aeron 的 `AERON_*_CPU_AFFINITY` |
+| `cpu` | 本 locator 的订阅 poll 线程绑核，同样语法。每个完整 locator 一个 poll 线程，不与其他 locator 共享 | 不绑 |
 
 注意属性分隔符：注释与测试里写的是 `[slotSize=256]` 这种方括号形式（`tm_transport/test/aeron_ipc_test/aeron_ipc_graph_test.cpp:10`）。
 
-`slotSize` 上限：`kAeronMaxMtu - 4 - 32 = 65468` 字节（`src/aeron_ipc/AeronIpcComponent.cpp:30`–`:32`、`:145`），超出在构造时抛 `std::invalid_argument`。
+`slotSize` 上限：`kAeronMaxMtu - 4 - 32 = 65468` 字节（`src/aeron_ipc/AeronIpcComponent.cpp:32`–`:34`、`:147`），超出在构造时抛 `std::invalid_argument`。
 
-### 3. 工厂：`AeronIpcImporterExporter<Env>`（`tm_transport/tm_kit/transport/aeron_ipc/AeronIpcImporterExporter.hpp:18`）
+### 3. 工厂：`AeronIpcImporterExporter<Env>`（`tm_transport/tm_kit/transport/aeron_ipc/AeronIpcImporterExporter.hpp:20`）
 
-模板参数是 **`Env`**（要求 `std::is_base_of_v<AeronIpcComponent, Env>`，`:17`），与其他传输的 `<M>` 不同，`M` 在内部推出。
+模板参数是 **`Env`**（要求 `std::is_base_of_v<AeronIpcComponent, Env>`，`:19`），与其他传输的 `<M>` 不同，`M` 在内部推出。
 
 | 函数 | 行号 |
 |---|---|
-| `createImporter(locator, topic = NoTopicSelection(), wireToUserHook)` | `:21` |
-| `createTypedImporter<T>(locator, topic, wireToUserHook)` | `:66` |
-| `createExporter(locator, userToWireHook, heartbeatName = "")` | `:117` |
-| `createTypedExporter<T>(locator, userToWireHook, heartbeatName)` | `:153` |
-| `fetchFirstUpdateAndDisconnect(env, locator, topic, hook)` | `:192` |
-| `fetchTypedFirstUpdateAndDisconnect<T>(env, locator, topic, predicate, hook)` | `:218` |
+| `createImporter(locator, topic = NoTopicSelection(), wireToUserHook)` | `:23` |
+| `createTypedImporter<T>(locator, topic, wireToUserHook)` | `:69` |
+| `createExporter(locator, userToWireHook, heartbeatName = "")` | `:121` |
+| `createTypedExporter<T>(locator, userToWireHook, heartbeatName)` | `:158` |
+| `fetchFirstUpdateAndDisconnect(env, locator, topic, hook)` | `:198` |
+| `fetchTypedFirstUpdateAndDisconnect<T>(env, locator, topic, predicate, hook)` | `:225` |
 
 ### 4. 接入 MultiTransport
 
-- 枚举 `MultiTransportBroadcastListenerConnectionType::AeronIpc`、通道前缀 `"aeron_ipc"`（`tm_transport/tm_kit/transport/MultiTransportBroadcastListener.hpp:125`）。
-- **不在 `AllNetworkTransportComponents` 里**（`MultiTransportBroadcastListener.hpp:38`），必须在 Environment 里显式列出 `aeron_ipc::AeronIpcComponent`。
-- 心跳：`HeartbeatAndAlertComponentInitializer<Env, aeron_ipc::AeronIpcComponent>`（`tm_transport/tm_kit/transport/HeartbeatAndAlertComponent.hpp:251`）。
+- 枚举 `MultiTransportBroadcastListenerConnectionType::AeronIpc`、通道前缀 `"aeron_ipc"`（`tm_transport/tm_kit/transport/MultiTransportBroadcastListener.hpp:126`）。
+- **不在 `AllNetworkTransportComponents` 里**（`MultiTransportBroadcastListener.hpp:39`），必须在 Environment 里显式列出 `aeron_ipc::AeronIpcComponent`。
+- 心跳：`HeartbeatAndAlertComponentInitializer<Env, aeron_ipc::AeronIpcComponent>`（`tm_transport/tm_kit/transport/HeartbeatAndAlertComponent.hpp:252`）。
 
 ## 最小可用示例
 
@@ -152,7 +155,7 @@ r.connect(std::move(source), r.exporterAsSink("sink", sink));
 |---|---|---|
 | 可用性 | ✓（仅 Linux、仅同机、需构建时找到 Aeron） | ✗ |
 | 线程 | 每个订阅一个轮询线程；嵌入式 driver 另有自己的线程 | 不适用 |
-| 慢读者 | 默认非 tether：被 driver 剔除；`backPressure=drop` 时发布端丢消息 | 不适用 |
+| 慢读者 | 默认非 tether：约 20ms（window-limit + linger）内被 driver 剔除；剔除前 `backPressure=drop` 时发布端丢消息 | 不适用 |
 
 ## 易错点
 
@@ -166,11 +169,11 @@ r.connect(std::move(source), r.exporterAsSink("sink", sink));
 
 **3. 发布函数只能单线程调用**
 
-`AeronIpcComponent.hpp:57`：同一 locator 返回的 publisher 必须一次只被一个线程调用（底层是 `ExclusivePublication`）。没有 shm_seqlock / shm_cursor 那种 `writerLock` 开关；心跳与数据同发时需自行串行化。
+`AeronIpcComponent.hpp:75`：同一 locator 返回的 publisher 必须一次只被一个线程调用（底层是 `ExclusivePublication`）。没有 shm_seqlock / shm_cursor 那种 `writerLock` 开关；心跳与数据同发时需自行串行化。
 
 **4. 嵌入式 driver 跟随发布进程**
 
-`driver=auto` 在目录无活 driver 时嵌入一个（`src/aeron_ipc/AeronIpcComponent.cpp:362`–`:378`）。发布进程重启，driver 也随之消失；读者会一直重试并重建 client（`clientRebuilds` 计数）。生产环境可改用 `driver=external` 独立部署 media driver。
+`driver=auto` 在目录无活 driver 时嵌入一个（`src/aeron_ipc/AeronIpcComponent.cpp:385`–`:401`）。发布进程重启，driver 也随之消失；读者会一直重试并重建 client（`clientRebuilds` 计数）。生产环境可改用 `driver=external` 独立部署 media driver。
 
 **5. `driverIdle=spin` 默认打满一个核**
 
@@ -179,6 +182,16 @@ r.connect(std::move(source), r.exporterAsSink("sink", sink));
 **6. 超长消息被丢弃而不是报错**
 
 运行期超过 `slotSize` 的消息只计 `oversized`，不抛异常。
+
+**7. 调大 untethered 超时会让所有读者一起丢消息**
+
+默认 `untetheredWindowLimitTimeoutMs` / `untetheredLingerTimeoutMs` 为 10ms（`src/aeron_ipc/AeronIpcComponent.cpp:426`–`:428`）：慢读者约 20ms 内被移出流控，休息 `untetheredRestingTimeoutMs`（100ms）后重新加入，只丢它自己跟不上的消息。慢读者被移出之前一直占着窗口，发布端被背压；`backPressure=drop` 下这段时间的消息**所有读者（包括快读者）都收不到**。所以调大这两个值是用其他读者的投递换慢读者少丢——`05962f6` 曾把默认改成 2000ms，导致一个慢读者让快读者丢掉大部分消息，已在 tm_transport `8bb9d5c` 改回 10ms。只有“宁可拖慢全体也不想慢读者丢包”时才在 locator 上显式调大。
+
+无论超时取多少，被移出时正在读的分片都不会以撕裂数据交付：handler 先把分片拷到线程私有缓冲再复核帧头，term 已被复用时丢弃并计入 `AeronIpcSubscriberStats::overrun`。
+
+**8. `driverCpu` 失败不抛异常；dedicated 模式用 `auto`**
+
+driver 的 agent 线程由 Aeron 的 C 回调启动，绑核失败只打 stderr 并计入 `AeronIpcPublisherStats::driverBindFailed`，driver 继续运行，部署后要看这个计数。属性语法错误或没有 provider 仍在 `getPublisher` 的调用线程抛 `std::invalid_argument`；`driverCpu=none` 不需要 provider。`driverThreading=dedicated` 时 3 个 agent 线程各取一次租约：`auto` 占 3 个核；显式 CPU 列表对每个 agent 是同一份，严格的分配器（hwloc）会拒绝第二次 reserve（计入 `driverBindFailed`），所以 dedicated 模式建议用 `auto`。`TM_AERON_IPC_DRIVER_CPU` 环境变量（locator 没写 `driverCpu` 时使用）现在也走 provider。provider 与 `cpu` 属性的通用规则见 [transport 线程绑核](../00-overview.md#6-transport-线程绑核)。
 
 ## 第三方依赖
 
@@ -194,4 +207,4 @@ r.connect(std::move(source), r.exporterAsSink("sink", sink));
 - [shared_memory_broadcast 传输](shared_memory_broadcast.md)
 - [广播](../01-broadcast.md)
 - [心跳与告警](../05-heartbeat-and-alert.md)
-- [各传输能力矩阵](../00-overview.md)
+- [各传输能力矩阵](../00-overview.md) · [transport 线程绑核](../00-overview.md#6-transport-线程绑核)

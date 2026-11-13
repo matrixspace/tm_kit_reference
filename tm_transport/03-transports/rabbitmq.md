@@ -127,7 +127,7 @@ auto heartbeatSource = transport::MultiTransportBroadcastListenerManagingUtils<R
     );
 ```
 
-topic 里的 `#` 是 AMQP 的**多级**通配符（匹配零个或多个词），`*` 是**单级**通配符。框架对 RabbitMQ 的 topic **不做任何转换**（`tm_kit/transport/MultiTransportBroadcastListener.hpp:301` 的 `parseTopic`，RabbitMQ 分支在 `:285` 直接 `return s;`）。
+topic 里的 `#` 是 AMQP 的**多级**通配符（匹配零个或多个词），`*` 是**单级**通配符。框架对 RabbitMQ 的 topic **不做任何转换**（`tm_kit/transport/MultiTransportBroadcastListener.hpp:302` 的 `parseTopic`，RabbitMQ 分支在 `:285` 直接 `return s;`）。
 
 ### 发布
 

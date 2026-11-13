@@ -10,7 +10,7 @@ tm_infra  ──►  tm_basic  ──►  tm_transport
   图与节点       时钟/序列化/事务     进程间通信
 ```
 
-完整参考文档 57 篇、约 18,196 行，就在本仓库里。单篇 3k–14k token，**整包约 38 万 token，不要一次性全读**。
+完整参考文档 57 篇、约 18,347 行，就在本仓库里。单篇 3k–14k token，**整包约 38 万 token，不要一次性全读**。
 
 ## 怎么用这套文档
 
@@ -94,6 +94,7 @@ tm_infra  ──►  tm_basic  ──►  tm_transport
 | 多图交错回测 / 退出计时器 | `tm_basic/10-app-runner-utils.md` |
 | 时钟组件怎么选 | `tm_basic/01-clocks.md` |
 | 忙线程自动绑核 / 多进程 CPU 协商 | `tm_basic/11-hwloc-cpu-allocator.md` |
+| transport 内部线程绑核（locator 的 `cpu` / `senderCpu` / `driverCpu`） | `tm_transport/00-overview.md` §6 |
 | 跨进程广播 / 发布订阅 | `tm_transport/01-broadcast.md` |
 | 跨进程 RPC / 远程设施 | `tm_transport/02-facilities.md` |
 | 选传输（RabbitMQ / ZeroMQ / gRPC…） | `tm_transport/00-overview.md` + `tm_transport/03-transports/` |
@@ -118,13 +119,13 @@ tm_infra  ──►  tm_basic  ──►  tm_transport
 | `DelaySimulator` | 忽略 | 生效（模拟逻辑耗时） |
 | 结束方式 | `terminationController` 阻塞 main | `finalize()` 返回即结束 |
 
-> **文档校验版本**：2026-11-12 — 57 篇 / 18187 行
+> **文档校验版本**：2026-11-13 — 57 篇 / 18318 行
 >
 > | 库 | commit | 日期 |
 > |---|---|---|
 > | `tm_infra` | `8295c6b` | 2026-11-12 |
 > | `tm_basic` | `7821937` | 2026-11-12 |
-> | `tm_transport` | `e22df3c` | 2026-11-09 |
+> | `tm_transport` | `ccb9a8c` | 2026-11-13 |
 >
 > 下游若 pin 的 tm_kit 版本与此不同，文档描述的 API 可能已经变了。
 > 核对方法：`python3 tools/stamp_versions.py --check`（需三个库在同一 workspace 下）。

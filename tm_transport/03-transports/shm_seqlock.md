@@ -2,7 +2,7 @@
 title: shm_seqlock 传输
 library: tm_transport
 headers: [tm_kit/transport/shm_seqlock/ShmSeqlockComponent.hpp, tm_kit/transport/shm_seqlock/ShmSeqlockImporterExporter.hpp]
-keywords: [shm_seqlock, ShmSeqlockComponent, ShmSeqlockImporterExporter, seqlock, 共享内存, SPMC, 单发布者多读者, 低延迟, /dev/shm, futex, layout, inline-premark, split, slotSize, slotCount, writerLock, join, ShmSeqlockReaderStats, ShmSeqlockPublisherStats, Linux]
+keywords: [shm_seqlock, ShmSeqlockComponent, ShmSeqlockImporterExporter, seqlock, 共享内存, SPMC, 单发布者多读者, 低延迟, /dev/shm, futex, layout, inline-premark, split, slotSize, slotCount, writerLock, join, ShmSeqlockReaderStats, ShmSeqlockPublisherStats, Linux, cpu, 绑核, shm_seqlock_setThreadCpuLease]
 ---
 
 # shm_seqlock 传输
@@ -28,10 +28,10 @@ namespace dev::cd606::tm::transport::shm_seqlock
 
 ## 核心类型与签名
 
-### 1. `ShmSeqlockComponent`（`tm_transport/tm_kit/transport/shm_seqlock/ShmSeqlockComponent.hpp:99`）
+### 1. `ShmSeqlockComponent`（`tm_transport/tm_kit/transport/shm_seqlock/ShmSeqlockComponent.hpp:107`）
 
 ```cpp
-// tm_transport/tm_kit/transport/shm_seqlock/ShmSeqlockComponent.hpp:105-114
+// tm_transport/tm_kit/transport/shm_seqlock/ShmSeqlockComponent.hpp:113-122
 struct NoTopicSelection {};
 uint32_t shm_seqlock_addSubscriptionClient(ConnectionLocator const &locator,
                 std::variant<NoTopicSelection, std::string, std::regex> const &topic,
@@ -42,9 +42,10 @@ std::function<void(basic::ByteDataWithTopic &&)> shm_seqlock_getPublisher(Connec
 std::unordered_map<ConnectionLocator, std::thread::native_handle_type> shm_seqlock_threadHandles();
 std::unordered_map<ConnectionLocator, ShmSeqlockReaderStats> shm_seqlock_readerStats();
 std::unordered_map<ConnectionLocator, ShmSeqlockPublisherStats> shm_seqlock_publisherStats();
+void shm_seqlock_setThreadCpuLease(ThreadCpuLeaseProvider provider);   // :126，读线程绑核 provider，只能设一次
 ```
 
-统计结构（`ShmSeqlockComponent.hpp:81`、`:90`）：
+统计结构（`ShmSeqlockComponent.hpp:89`、`:98`）：
 
 | 结构 | 字段 |
 |---|---|
@@ -57,9 +58,9 @@ std::unordered_map<ConnectionLocator, ShmSeqlockPublisherStats> shm_seqlock_publ
 shm_seqlock://::::<segmentName>[prop=value,...]
 ```
 
-只用 `identifier`（段名）和属性（`ShmSeqlockComponent.hpp:28`–`:29`）。段名必须非空且不含 `/`（`tm_transport/src/shm_seqlock/ShmSeqlockComponent.cpp:139`）。
+只用 `identifier`（段名）和属性（`ShmSeqlockComponent.hpp:29`–`:30`）。段名必须非空且不含 `/`（`tm_transport/src/shm_seqlock/ShmSeqlockComponent.cpp:141`）。
 
-发布端属性（决定段布局，`ShmSeqlockComponent.hpp:31`–`:58`）：
+发布端属性（决定段布局，`ShmSeqlockComponent.hpp:32`–`:59`）：
 
 | 属性 | 含义 | 默认 |
 |---|---|---|
@@ -72,7 +73,7 @@ shm_seqlock://::::<segmentName>[prop=value,...]
 | `writerLock` | 串行化本进程多个线程对该段的 publish（如数据 + 心跳） | `false` |
 | `testNoPremark` | **仅测试用**，关闭 pre-mark，不是合法 seqlock | —— |
 
-读端属性（布局一律从段头读取，与 locator 写的无关，`:62`–`:75`）：
+读端属性（布局一律从段头读取，与 locator 写的无关，`:63`–`:83`）：
 
 | 属性 | 含义 | 默认 |
 |---|---|---|
@@ -83,8 +84,9 @@ shm_seqlock://::::<segmentName>[prop=value,...]
 | `pauseAfter` | spin 模式下空轮询 n 次后开始 PAUSE | `0`（从不） |
 | `join` | `latest`：首条交付已发布的最新消息；`next`：只交付加入之后发布的 | `latest` |
 | `mlock` | 尽力 mlock 映射 | `true` |
+| `cpu` | 读线程绑核，`CpuBindingSpec` 语法（`none`/`auto`/`numa:<n>`/`cpus:<list>`/`<list>`，不能含逗号，用区间）。需要 provider，见 [transport 线程绑核](../00-overview.md#6-transport-线程绑核) | 不绑 |
 
-`layout` 三种取值的区别（`:35`–`:50`）：
+`layout` 三种取值的区别（`:36`–`:51`）：
 
 | layout | seq 位置 | 特点 |
 |---|---|---|
@@ -94,10 +96,10 @@ shm_seqlock://::::<segmentName>[prop=value,...]
 
 `split` / `inline-premark` 下读者最多可落后 `slotCount-1` 条而不被套圈。
 
-### 3. 工厂：`ShmSeqlockImporterExporter<Env>`（`ShmSeqlockImporterExporter.hpp:18`）
+### 3. 工厂：`ShmSeqlockImporterExporter<Env>`（`ShmSeqlockImporterExporter.hpp:20`）
 
 ```cpp
-// tm_transport/tm_kit/transport/shm_seqlock/ShmSeqlockImporterExporter.hpp:17-18
+// tm_transport/tm_kit/transport/shm_seqlock/ShmSeqlockImporterExporter.hpp:19-20
 template <class Env, std::enable_if_t<std::is_base_of_v<ShmSeqlockComponent, Env>, int> = 0>
 class ShmSeqlockImporterExporter {
 ```
@@ -106,21 +108,21 @@ class ShmSeqlockImporterExporter {
 
 | 函数 | 行号 |
 |---|---|
-| `createImporter(locator, topic = NoTopicSelection(), wireToUserHook)` | `:21` |
-| `createTypedImporter<T>(...)` | `:66` |
-| `createExporter(locator, userToWireHook, heartbeatName = "")` | `:117` |
-| `createTypedExporter<T>(...)` | `:153` |
-| `fetchFirstUpdateAndDisconnect(env, locator, topic, hook)` | `:192` |
-| `fetchTypedFirstUpdateAndDisconnect<T>(env, locator, topic, predicate, hook)` | `:218` |
+| `createImporter(locator, topic = NoTopicSelection(), wireToUserHook)` | `:23` |
+| `createTypedImporter<T>(...)` | `:69` |
+| `createExporter(locator, userToWireHook, heartbeatName = "")` | `:121` |
+| `createTypedExporter<T>(...)` | `:158` |
+| `fetchFirstUpdateAndDisconnect(env, locator, topic, hook)` | `:198` |
+| `fetchTypedFirstUpdateAndDisconnect<T>(env, locator, topic, predicate, hook)` | `:225` |
 
 ### 4. 接入 MultiTransport 层
 
-连接类型名 `shm_seqlock`，枚举值 `MultiTransportBroadcastListenerConnectionType::ShmSeqlock`（`tm_transport/tm_kit/transport/MultiTransportBroadcastListener.hpp:123`）。已接入：
+连接类型名 `shm_seqlock`，枚举值 `MultiTransportBroadcastListenerConnectionType::ShmSeqlock`（`tm_transport/tm_kit/transport/MultiTransportBroadcastListener.hpp:124`）。已接入：
 
-- `AllNetworkTransportComponents`（`MultiTransportBroadcastListener.hpp:47`）
+- `AllNetworkTransportComponents`（`MultiTransportBroadcastListener.hpp:48`）
 - `MultiTransportBroadcastListener`、`MultiTransportBroadcastListenerManagingUtils`（含 SynchronousRunner 版本）、`MultiTransportBroadcastPublisherManagingUtils`
-- 心跳：`HeartbeatAndAlertComponentInitializer<Env, shm_seqlock::ShmSeqlockComponent>`（`tm_transport/tm_kit/transport/HeartbeatAndAlertComponent.hpp:218`）
-- 被视为"无需 topic 订阅"的类型，与 multicast、shared_memory_broadcast 同组（`MultiTransportBroadcastListener.hpp:165`）
+- 心跳：`HeartbeatAndAlertComponentInitializer<Env, shm_seqlock::ShmSeqlockComponent>`（`tm_transport/tm_kit/transport/HeartbeatAndAlertComponent.hpp:219`）
+- 被视为"无需 topic 订阅"的类型，与 multicast、shared_memory_broadcast 同组（`MultiTransportBroadcastListener.hpp:166`）
 
 ## 最小可用示例
 
@@ -163,7 +165,7 @@ comp->shm_seqlock_addSubscriptionClient(
 | 可用性 | ✓（仅同机、仅 Linux） | ✗ |
 | 投递语义 | 有损：慢读者被套圈后跳到最新 | 不适用，回测用文件 importer |
 | 线程 | 每段每个组件一条读线程 | —— |
-| CPU | `wait=spin` 时读线程占满一个核 | —— |
+| CPU | `wait=spin` 时读线程占满一个核；可用 `cpu` 属性把读线程绑到指定核 | —— |
 
 ## 易错点
 
@@ -173,15 +175,15 @@ comp->shm_seqlock_addSubscriptionClient(
 
 **2. 同进程多线程发布必须开 `writerLock=true`**
 
-一个段只能有一个发布者线程。跨进程由 `flock` 强制，**进程内不强制**（`ShmSeqlockComponent.hpp:77`–`:80`）。典型陷阱：数据和 `HeartbeatAndAlertComponent` 心跳发往同一段，两个线程并发调 publisher 会写坏消息。此时必须在 locator 上加 `writerLock=true`。
+一个段只能有一个发布者线程。跨进程由 `flock` 强制，**进程内不强制**（`ShmSeqlockComponent.hpp:85`–`:88`）。典型陷阱：数据和 `HeartbeatAndAlertComponent` 心跳发往同一段，两个线程并发调 publisher 会写坏消息。此时必须在 locator 上加 `writerLock=true`。
 
 **3. 第一个订阅决定读者属性**
 
-每个段在每个组件里只有一条读线程，读端属性（`read`、`wait`、`join` 等）由该段的**第一个订阅**决定，之后的订阅改属性无效。
+每个段在每个组件里只有一条读线程，读端属性（`read`、`wait`、`join` 等）由该段的**第一个订阅**决定，之后的订阅改属性无效。`cpu` 同理：读线程按第一个订阅的 `cpu` 绑核，之后的订阅写不同的值只在 stderr 警告一次。
 
 **4. 读端 locator 里的布局属性被忽略**
 
-读者一律按段头的布局读。发布端换了布局重启时，旧段被标为 superseded，读者自动重开新段；同布局重启则消息索引接续，读者无感恢复（`:59`–`:61`）。
+读者一律按段头的布局读。发布端换了布局重启时，旧段被标为 superseded，读者自动重开新段；同布局重启则消息索引接续，读者无感恢复（`:60`–`:62`）。
 
 **5. 超过 `slotSize` 的消息被拒绝**
 

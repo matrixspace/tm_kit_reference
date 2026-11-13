@@ -2,7 +2,7 @@
 title: Singlecast 传输
 library: tm_transport
 headers: [tm_kit/transport/singlecast/SinglecastComponent.hpp, tm_kit/transport/singlecast/SinglecastImporterExporter.hpp]
-keywords: [singlecast, SinglecastComponent, SinglecastImporterExporter, UDP 单播, 点对点, envelop, ignoreTopic, 无 broker]
+keywords: [singlecast, SinglecastComponent, SinglecastImporterExporter, UDP 单播, 点对点, envelop, ignoreTopic, 无 broker, cpu, senderCpu, 发送线程, 绑核, singlecast_setThreadCpuLease, threadHandles]
 ---
 
 # Singlecast 传输
@@ -28,33 +28,41 @@ namespace dev::cd606::tm::transport::singlecast
 
 ### 1. `SinglecastComponent`（`SinglecastComponent.hpp`）
 
-Environment 组件。提供 `singlecast_threadHandles()` 用于诊断，以及 `struct NoTopicSelection {}`。
+Environment 组件。提供 `singlecast_threadHandles()` 用于诊断（返回有效的接收线程 native handle；旧版本因 `detach()` 清空句柄而一直返回 0），`struct NoTopicSelection {}`，以及接收/发送线程绑核 provider 的注入接口：
+
+```cpp
+void singlecast_setThreadCpuLease(ThreadCpuLeaseProvider provider);   // SinglecastComponent.hpp:49，只能设一次，第二次抛 std::logic_error
+```
 
 ### 2. Locator 语法
 
 ```
-singlecast://host:port[envelop=cbor][ignoreTopic=false]
+singlecast://host:port[envelop=cbor][ignoreTopic=false][cpu=none][senderCpu=none]
 ```
 
 | 字段 | 含义 | 默认 |
 |---|---|---|
-| `host` | 目的地址。订阅端忽略此字段，固定监听 `0.0.0.0`（`src/singlecast/SinglecastComponent.cpp:167`） | —— |
+| `host` | 目的地址。订阅端忽略此字段，固定监听 `0.0.0.0`（`src/singlecast/SinglecastComponent.cpp:177`） | —— |
 | `port` | 端口（必填） | —— |
 | `identifier` | 未使用 | —— |
-| `envelop` | topic 编码方式 | `cbor`（`:344`、`:389`） |
+| `envelop` | topic 编码方式 | `cbor`（`:384`、`:478`） |
 | `ignoreTopic` | 为 `true` 时按纯二进制解析（不带 topic） | `false` |
+| `cpu` | 该端口接收线程绑核，`CpuBindingSpec` 语法（不能含逗号，用区间）；同一 `host:port` 只认第一个订阅的值 | 不绑 |
+| `senderCpu` | 组件级共享发送线程绑核，由**第一次** `getPublisher` 的 locator 决定，之后的不同值只警告一次 | 不绑 |
 
-`envelop` 的取值与 multicast 相同（`src/singlecast/SinglecastComponent.cpp:18` 的 `parseEncodingChoice`）：`"cbor"` / `"binary"` / `"raw-binary"` / `"binary-adhoc"`，其他值回落到 CBOR。
+`envelop` 的取值与 multicast 相同（`src/singlecast/SinglecastComponent.cpp:20` 的 `parseEncodingChoice`）：`"cbor"` / `"binary"` / `"raw-binary"` / `"binary-adhoc"`，其他值回落到 CBOR。
 
-发送端用 `locator.host()` 解析目的地址（`:282`），接收端固定绑定 `0.0.0.0:port` 不区分来源（`:167`）。
+发送端用 `locator.host()` 解析目的地址（`:307`），接收端固定绑定 `0.0.0.0:port` 不区分来源（`:177`）。
 
-### 3. 工厂：`SinglecastImporterExporter<M>`（`SinglecastImporterExporter.hpp:18`）
+`cpu` / `senderCpu` 都需要 provider，非 `none` 而没有 provider 时抛 `std::invalid_argument`；provider 的异常从 `addSubscriptionClient` / `getPublisher` 同步抛出。通用规则见 [transport 线程绑核](../00-overview.md#6-transport-线程绑核)。
+
+### 3. 工厂：`SinglecastImporterExporter<M>`（`SinglecastImporterExporter.hpp:20`）
 
 ```cpp
 template <class M>
 class SinglecastImporterExporter {
 public:
-    // :21 / :66
+    // :23 / :69
     static std::shared_ptr<typename M::template Importer<basic::ByteDataWithTopic>>
     createImporter(
         ConnectionLocator const &locator
@@ -66,7 +74,7 @@ public:
     static std::shared_ptr<typename M::template Importer<basic::TypedDataWithTopic<T>>>
     createTypedImporter(...);
 
-    // :117 / :153
+    // :121 / :158
     static std::shared_ptr<typename M::template Exporter<basic::ByteDataWithTopic>>
     createExporter(
         ConnectionLocator const &locator
@@ -88,7 +96,7 @@ public:
 `tm_examples/` 中暂无 singlecast 的直接用例。按头文件签名构造的最小骨架：
 
 ```cpp
-// 来源：tm_kit/transport/singlecast/SinglecastImporterExporter.hpp:21 签名（示例代码库中暂无用例）
+// 来源：tm_kit/transport/singlecast/SinglecastImporterExporter.hpp:23 签名（示例代码库中暂无用例）
 using Env = infra::Environment<
     infra::CheckTimeComponent<false>,
     infra::TrivialExitControlComponent,
@@ -131,7 +139,7 @@ auto subscriber = transport::singlecast::SinglecastImporterExporter<M>
 
 **1. 接收端的 `host` 字段被忽略**
 
-订阅端固定绑定 `0.0.0.0:port`（`src/singlecast/SinglecastComponent.cpp:167`），locator 里写什么 host 都不影响监听地址。写 `singlecast://192.168.1.50:12345` 作为接收端不会"只接收来自该 IP 的数据"——**任何**发到本机 12345 端口的 UDP 包都会被收到。
+订阅端固定绑定 `0.0.0.0:port`（`src/singlecast/SinglecastComponent.cpp:177`），locator 里写什么 host 都不影响监听地址。写 `singlecast://192.168.1.50:12345` 作为接收端不会"只接收来自该 IP 的数据"——**任何**发到本机 12345 端口的 UDP 包都会被收到。
 
 **2. 没有来源校验，不是安全边界**
 
@@ -160,5 +168,5 @@ Boost.Asio 官方文档：https://www.boost.org/doc/libs/release/doc/html/boost_
 - [各传输的并发支持](../08-concurrency.md) — 本传输的多进程 / 多线程读写结论
 - [广播](../01-broadcast.md) — 通用广播接口
 - [multicast 传输](multicast.md) — 组播版本；`envelop`/`ignoreTopic` 语义相同
-- [各传输能力矩阵](../00-overview.md)
+- [各传输能力矩阵](../00-overview.md) · [transport 线程绑核](../00-overview.md#6-transport-线程绑核)
 

@@ -91,6 +91,7 @@ tm_infra  ──►  tm_basic  ──►  tm_transport
 | 多图交错回测 / 退出计时器 | `tm_basic/10-app-runner-utils.md` |
 | 时钟组件怎么选 | `tm_basic/01-clocks.md` |
 | 忙线程自动绑核 / 多进程 CPU 协商 | `tm_basic/11-hwloc-cpu-allocator.md` |
+| transport 内部线程绑核（locator 的 `cpu` / `senderCpu` / `driverCpu`） | `tm_transport/00-overview.md` §6 |
 | 跨进程广播 / 发布订阅 | `tm_transport/01-broadcast.md` |
 | 跨进程 RPC / 远程设施 | `tm_transport/02-facilities.md` |
 | 选传输（RabbitMQ / ZeroMQ / gRPC…） | `tm_transport/00-overview.md` + `tm_transport/03-transports/` |

@@ -53,7 +53,7 @@ void finalize() {
 
 `MultiTransportBroadcastListener`、`MultiTransportRemoteFacility`、`SyntheticMultiTransportFacility` 都把 `M` 硬编码为 `infra::RealTimeApp<Env>`：
 
-- `tm_kit/transport/MultiTransportBroadcastListener.hpp:372`
+- `tm_kit/transport/MultiTransportBroadcastListener.hpp:373`
 - `tm_kit/transport/MultiTransportRemoteFacility.hpp:123`
 - `tm_kit/transport/SyntheticMultiTransportFacility.hpp:22`（`static_assert`）
 
@@ -201,7 +201,7 @@ using FullRequestType = std::tuple<IdentityType, Request>;
 
 ### 5.3 `furthestPoint` 默认 24 小时
 
-`attachHeartbeatAndAlertComponent` 的 `furthestPoint` 默认 `std::chrono::hours(24)`（`HeartbeatAndAlertComponent.hpp:448`）。**连续运行超过 24 小时后心跳静默停止**，客户端开始报告服务下线。长跑程序必须显式放大。
+`attachHeartbeatAndAlertComponent` 的 `furthestPoint` 默认 `std::chrono::hours(24)`（`HeartbeatAndAlertComponent.hpp:454`）。**连续运行超过 24 小时后心跳静默停止**，客户端开始报告服务下线。长跑程序必须显式放大。
 
 ### 5.4 信道的"名字"与"地址"是两回事
 

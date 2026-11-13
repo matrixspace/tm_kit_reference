@@ -225,6 +225,8 @@ struct CpuBindingSpec {
 
 tm_basic 的配置串复用同一个 `parseCpuList`：`SharedThreadPoolConfig::cpusFromString`（见下节）和 `HwlocCpuAllocatorConfig::fromString`（见 [tm_basic/11](../tm_basic/11-hwloc-cpu-allocator.md#配置)）。
 
+tm_transport 的 IPC 传输内部线程（接收/轮询线程、multicast/singlecast 发送线程、aeron 内嵌 driver）也用同一套语法，通过 ConnectionLocator 属性 `cpu` / `senderCpu` / `driverCpu` 绑核，默认走 `bindCurrentThreadBy<Env>`，见 [tm_transport · transport 线程绑核](../tm_transport/00-overview.md#6-transport-线程绑核)。
+
 ### SharedPool：显式选择与进程级配置
 
 `basic::RealTimeSharedPoolExecutorComponent` 继承选择组件（`tm_basic/tm_kit/basic/RealTimeSharedPoolExecutor.hpp:518`）。把它作为 Environment 的一个组件即可选择共享池。示例代码库 `tm_examples` 中暂无用例；真实配置签名与默认值见同一头文件的 `:63`、`:247`：
@@ -322,3 +324,4 @@ infra 的 Inline / Dedicated 以及 basic 的 SharedPool 只使用标准库（�
 - [共享链](../tm_basic/08-shared-chain.md) · [传输并发](../tm_transport/08-concurrency.md)
 - [跨库模式](../PATTERNS.md#41-实时模式的线程取决于节点与执行器)
 - [hwloc 线程绑核分配器](../tm_basic/11-hwloc-cpu-allocator.md)
+- [transport 线程绑核](../tm_transport/00-overview.md#6-transport-线程绑核)

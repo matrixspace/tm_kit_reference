@@ -2,7 +2,7 @@
 title: shm_cursor 传输
 library: tm_transport
 headers: [tm_kit/transport/shm_cursor/ShmCursorComponent.hpp, tm_kit/transport/shm_cursor/ShmCursorImporterExporter.hpp]
-keywords: [shm_cursor, ShmCursorComponent, ShmCursorImporterExporter, 共享内存, 全局游标, SPMC, 有损, 低延迟, /dev/shm, futex, slotSize, slotCount, publisherLock, join, subscriptionLossCount, subscriptionOverwriteCount, publisherRejectedCount, Linux]
+keywords: [shm_cursor, ShmCursorComponent, ShmCursorImporterExporter, 共享内存, 全局游标, SPMC, 有损, 低延迟, /dev/shm, futex, slotSize, slotCount, publisherLock, join, subscriptionLossCount, subscriptionOverwriteCount, publisherRejectedCount, Linux, cpu, 绑核, shm_cursor_setThreadCpuLease]
 ---
 
 # shm_cursor 传输
@@ -26,10 +26,10 @@ namespace dev::cd606::tm::transport::shm_cursor
 
 ## 核心类型与签名
 
-### 1. `ShmCursorComponent`（`tm_transport/tm_kit/transport/shm_cursor/ShmCursorComponent.hpp:51`）
+### 1. `ShmCursorComponent`（`tm_transport/tm_kit/transport/shm_cursor/ShmCursorComponent.hpp:60`）
 
 ```cpp
-// tm_transport/tm_kit/transport/shm_cursor/ShmCursorComponent.hpp:58-75
+// tm_transport/tm_kit/transport/shm_cursor/ShmCursorComponent.hpp:67-84
 struct NoTopicSelection {};
 uint32_t shm_cursor_addSubscriptionClient(ConnectionLocator const &locator,
     std::variant<NoTopicSelection, std::string, std::regex> const &topic,
@@ -41,6 +41,7 @@ std::unordered_map<ConnectionLocator, std::thread::native_handle_type> shm_curso
 uint64_t shm_cursor_subscriptionLossCount(ConnectionLocator const &locator);
 uint64_t shm_cursor_subscriptionOverwriteCount(ConnectionLocator const &locator);
 uint64_t shm_cursor_publisherRejectedCount(ConnectionLocator const &locator);
+void shm_cursor_setThreadCpuLease(ThreadCpuLeaseProvider provider);   // :88，读线程绑核 provider，只能设一次
 ```
 
 | 统计 | 含义 |
@@ -55,7 +56,7 @@ uint64_t shm_cursor_publisherRejectedCount(ConnectionLocator const &locator);
 shm_cursor://::::<segmentName>[prop=value,...]
 ```
 
-段名 1–200 字符，只能含字母、数字、`_`、`-`、`.`（`tm_transport/src/shm_cursor/ShmCursorComponent.cpp:94`、`:98`）。属性（`ShmCursorComponent.hpp:23`–`:38`）：
+段名 1–200 字符，只能含字母、数字、`_`、`-`、`.`（`tm_transport/src/shm_cursor/ShmCursorComponent.cpp:96`、`:100`）。属性（`ShmCursorComponent.hpp:24`–`:46`）：
 
 | 属性 | 适用端 | 含义 | 默认 |
 |---|---|---|---|
@@ -67,25 +68,26 @@ shm_cursor://::::<segmentName>[prop=value,...]
 | `futexTimeoutMs` | 读，futex | 单次 futex 等待上限（毫秒） | `10` |
 | `join` | 读 | `latest`：首条为加入时最后提交的那条；`next`：只要加入后提交的 | `latest` |
 | `publisherLock` | 发布 | 本进程多线程发布同一段时设为 `true` | `false` |
+| `cpu` | 读 | 读线程绑核，`CpuBindingSpec` 语法（不能含逗号，用区间）。需要 provider，见 [transport 线程绑核](../00-overview.md#6-transport-线程绑核) | 不绑 |
 
-非法取值直接抛 `std::runtime_error`（如 `ShmCursorComponent.cpp:127`、`:141`、`:149`、`:152`、`:155`）。
+非法取值直接抛 `std::runtime_error`（如 `ShmCursorComponent.cpp:129`、`:143`、`:151`、`:154`、`:157`）。
 
-### 3. 工厂：`ShmCursorImporterExporter<Env>`（`ShmCursorImporterExporter.hpp:18`）
+### 3. 工厂：`ShmCursorImporterExporter<Env>`（`ShmCursorImporterExporter.hpp:20`）
 
-模板参数同样是 **`Env`**，要求 `std::is_base_of_v<ShmCursorComponent, Env>`（`:17`）。
+模板参数同样是 **`Env`**，要求 `std::is_base_of_v<ShmCursorComponent, Env>`（`:19`）。
 
 | 函数 | 行号 |
 |---|---|
-| `createImporter(locator, topic = NoTopicSelection(), wireToUserHook)` | `:21` |
-| `createTypedImporter<T>(...)` | `:67` |
-| `createExporter(locator, userToWireHook, heartbeatName = "")` | `:119` |
-| `createTypedExporter<T>(...)` | `:155` |
-| `fetchFirstUpdateAndDisconnect(env, locator, topic, hook)` | `:194` |
-| `fetchTypedFirstUpdateAndDisconnect<T>(env, locator, topic, predicate, hook)` | `:217` |
+| `createImporter(locator, topic = NoTopicSelection(), wireToUserHook)` | `:23` |
+| `createTypedImporter<T>(...)` | `:70` |
+| `createExporter(locator, userToWireHook, heartbeatName = "")` | `:123` |
+| `createTypedExporter<T>(...)` | `:160` |
+| `fetchFirstUpdateAndDisconnect(env, locator, topic, hook)` | `:200` |
+| `fetchTypedFirstUpdateAndDisconnect<T>(env, locator, topic, predicate, hook)` | `:224` |
 
 ### 4. 接入 MultiTransport 层
 
-连接类型名 `shm_cursor`，枚举 `MultiTransportBroadcastListenerConnectionType::ShmCursor`（`tm_transport/tm_kit/transport/MultiTransportBroadcastListener.hpp:124`）。已在 `AllNetworkTransportComponents`（`:48`）中，监听/发布 ManagingUtils 与心跳（`tm_transport/tm_kit/transport/HeartbeatAndAlertComponent.hpp:234`）均已支持。
+连接类型名 `shm_cursor`，枚举 `MultiTransportBroadcastListenerConnectionType::ShmCursor`（`tm_transport/tm_kit/transport/MultiTransportBroadcastListener.hpp:125`）。已在 `AllNetworkTransportComponents`（`:48`）中，监听/发布 ManagingUtils 与心跳（`tm_transport/tm_kit/transport/HeartbeatAndAlertComponent.hpp:235`）均已支持。
 
 ## 最小可用示例
 
@@ -118,13 +120,13 @@ transport::initializeHeartbeatAndAlertComponent(&env, "shm_cursor_test_pub", hea
 |---|---|---|
 | 可用性 | ✓（仅同机、仅 Linux） | ✗ |
 | 投递语义 | 有损，读者最多看到 `join=latest` 时的那一条历史 | 不适用 |
-| CPU | `wait=spin` 时读线程持续占核 | —— |
+| CPU | `wait=spin` 时读线程持续占核；可用 `cpu` 属性绑到指定核 | —— |
 
 ## 易错点
 
 **1. 第一个 locator 决定段属性**
 
-只用 `identifier` 作段的键，本进程**第一个**见到的 locator 决定该段的属性（`ShmCursorComponent.hpp:40`–`:44`）。后续 locator 写不同属性不生效。
+只用 `identifier` 作段的键，本进程**第一个**见到的 locator 决定该段的属性（`ShmCursorComponent.hpp:49`–`:53`）。后续 locator 写不同属性不生效；其中 `cpu` 写了不同值会在 stderr 警告一次。
 
 **2. 发布端改布局会重建段**
 
@@ -132,7 +134,7 @@ transport::initializeHeartbeatAndAlertComponent(&env, "shm_cursor_test_pub", hea
 
 **3. 一个段只能有一个发布进程**
 
-由 `/dev/shm/tm_shm_cursor.<name>.lock` 上的独占 `flock` 强制（`:45`–`:48`）。同进程多线程发布（例如数据 + 心跳发往同一段）必须加 `publisherLock=true`，否则并发调用会写坏数据。
+由 `/dev/shm/tm_shm_cursor.<name>.lock` 上的独占 `flock` 强制（`:54`–`:57`）。同进程多线程发布（例如数据 + 心跳发往同一段）必须加 `publisherLock=true`，否则并发调用会写坏数据。
 
 **4. 与 `MultiTransportBroadcastFirstUpdateQueryManagingUtils` + `AllNetworkTransportComponents` 一起用编译不过**
 

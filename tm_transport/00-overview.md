@@ -1,8 +1,8 @@
 ---
 title: tm_transport 概览
 library: tm_transport
-headers: [tm_kit/transport/ConnectionLocator.hpp, tm_kit/transport/MultiTransportBroadcastListener.hpp, tm_kit/transport/MultiTransportRemoteFacility.hpp]
-keywords: [tm_transport, ConnectionLocator, channel spec, 信道标识, AllNetworkTransportComponents, MultiTransport, 多传输抽象, 广播, broadcast, on-order facility, 远程设施, 传输能力矩阵]
+headers: [tm_kit/transport/ConnectionLocator.hpp, tm_kit/transport/MultiTransportBroadcastListener.hpp, tm_kit/transport/MultiTransportRemoteFacility.hpp, tm_kit/transport/ThreadCpuLeaseProvider.hpp, tm_kit/transport/ThreadCpuLeaseProviderInstall.hpp]
+keywords: [tm_transport, ConnectionLocator, channel spec, 信道标识, AllNetworkTransportComponents, MultiTransport, 多传输抽象, 广播, broadcast, on-order facility, 远程设施, 传输能力矩阵, 传输线程绑核, ThreadCpuLeaseProvider, threadCpuLeaseProviderFor, installThreadCpuLeaseProviders, setThreadCpuLease, cpu 属性, senderCpu, driverCpu]
 ---
 
 # tm_transport 概览
@@ -104,7 +104,7 @@ websocket://localhost:56789:::/data[ignoreTopic=true]
 grpc_interop://localhost:50051
 ```
 
-广播与 facility 各自维护一份**受支持的传输名列表**（`parseMultiTransportBroadcastChannel` 在 `tm_kit/transport/MultiTransportBroadcastListener.hpp:141`，`parseMultiTransportRemoteFacilityChannel` 在 `tm_kit/transport/MultiTransportRemoteFacility.hpp:60`）：
+广播与 facility 各自维护一份**受支持的传输名列表**（`parseMultiTransportBroadcastChannel` 在 `tm_kit/transport/MultiTransportBroadcastListener.hpp:142`，`parseMultiTransportRemoteFacilityChannel` 在 `tm_kit/transport/MultiTransportRemoteFacility.hpp:60`）：
 
 | 角色 | 支持的传输名（顺序即枚举序号） |
 |---|---|
@@ -113,7 +113,7 @@ grpc_interop://localhost:50051
 
 两者都返回 `std::optional<tuple<连接类型枚举, ConnectionLocator>>`：前缀不匹配返回 `nullopt`，前缀匹配但 locator 非法也返回 `nullopt`。
 
-### 3. `AllNetworkTransportComponents`（`tm_kit/transport/MultiTransportBroadcastListener.hpp:38`）
+### 3. `AllNetworkTransportComponents`（`tm_kit/transport/MultiTransportBroadcastListener.hpp:39`）
 
 一个把所有网络传输组件打包好的 `infra::Environment` 别名，方便"我要全部传输都能用"的场景：
 
@@ -187,6 +187,57 @@ using TheEnvironment = infra::Environment<
 
 详见 [安全与身份校验](06-security.md)。
 
+### 6. transport 线程绑核
+
+8 个自带内部线程的传输（`shm_seqlock`、`shm_cursor`、`shared_memory_broadcast`、`aeron_ipc`、`zeromq`、`nng`、`multicast`、`singlecast`）可以通过 ConnectionLocator 属性把这些线程绑到指定 CPU，复用 tm_infra 的 `ThreadCpuLease` / `IThreadCpuAllocator`，与图节点的 `CpuAutoBind()` 共享“不抢同一个核”的保证（见 [tm_infra · 字符串绑核策略](../tm_infra/10-realtime-executors.md#字符串绑核策略cpubind)）。
+
+| 属性 | 绑定的线程 | 适用传输 |
+|---|---|---|
+| `cpu` | 接收 / 轮询线程 | 全部 8 个 |
+| `senderCpu` | 组件级共享发送线程，由第一次 `getPublisher` 决定 | `multicast`、`singlecast` |
+| `driverCpu` | aeron 内嵌 driver 的 agent 线程 | `aeron_ipc` |
+
+属性值用 `CpuBindingSpec` 语法：`none` / `auto` / `numa:<n>` / `cpus:<list>` / `<list>`。示例：
+
+```
+shm_seqlock://::::feed[cpu=auto]
+zeromq://ipc:0:::/tmp/feed[cpu=numa:0]
+multicast://239.1.1.1:12345[cpu=4,senderCpu=5]
+aeron_ipc://::::1001[driverCpu=auto,cpu=cpus:6-7]
+```
+
+**provider**（`tm_kit/transport/ThreadCpuLeaseProvider.hpp:19`）：
+
+```cpp
+using ThreadCpuLeaseProvider = std::function<infra::ThreadCpuLease(std::string const &who, std::string const &spec)>;
+
+template <class Env> ThreadCpuLeaseProvider threadCpuLeaseProviderFor();   // :26，转调 ThreadCpuLease::bindCurrentThreadBy<Env>
+template <class Env> void installThreadCpuLeaseProviders(Env *env);       // :38，定义在 ThreadCpuLeaseProviderInstall.hpp:30
+```
+
+每个组件有一个公共注入接口 `xxx_setThreadCpuLease(ThreadCpuLeaseProvider)`：`shm_seqlock_setThreadCpuLease`、`shm_cursor_setThreadCpuLease`、`shared_memory_broadcast_setThreadCpuLease`、`aeron_ipc_setThreadCpuLease`、`zeroMQ_setThreadCpuLease`、`nng_setThreadCpuLease`、`multicast_setThreadCpuLease`、`singlecast_setThreadCpuLease`。provider 在工作线程自身的第一行被调用，租约随线程退出归还。
+
+**自动安装**：`installThreadCpuLeaseProviders<Env>(env)` 对 Env 里的每个传输组件“没装才装”默认 provider（`threadCpuLeaseProviderFor<Env>()`）。框架在以下入口自动调用它，一般不用手动调：
+
+- 各 `XxxImporterExporter` 的 `start(Env *)` 与 `fetchFirstUpdateAndDisconnect` / `fetchTypedFirstUpdateAndDisconnect`（例如 `tm_kit/transport/zeromq/ZeroMQImporterExporter.hpp:37`）
+- `MultiTransportBroadcastListener::start`（`tm_kit/transport/MultiTransportBroadcastListener.hpp:1307`）
+- `initializeHeartbeatAndAlertComponent`（`tm_kit/transport/HeartbeatAndAlertComponent.hpp:314`）
+
+直接调组件 API（`xxx_addSubscriptionClient` / `xxx_getPublisher`）而不经过上述入口时，先手动调一次 `installThreadCpuLeaseProviders<Env>(&env)`，或自己 `xxx_setThreadCpuLease(...)`。
+
+**规则**：
+
+- provider **只能设置一次**，第二次 `xxx_setThreadCpuLease` 抛 `std::logic_error`，原 provider 继续生效。自定义 provider 必须在图启动（`finalize()`）之前设置，否则会被自动安装的默认 provider 抢先。
+- `none` 或不写属性：不调用 provider，不创建握手对象，零额外开销，行为与改动前一致。
+- 属性语法错误 → `std::invalid_argument`（信息含传输名、属性名、值和 locator）；非 `none` 属性但组件没有 provider → `std::invalid_argument`；默认 provider 在 Env 没有 `ThreadCpuAllocatorComponent` 时 → `infra::ThreadCpuBindError`。
+- provider 抛出的异常经启动握手**同步**抛回 `addSubscriptionClient` / `getPublisher` 的调用者，不留下半初始化的线程或订阅。
+- 共享线程（`zeromq` / `nng` 按 host/port/identifier，`shm_seqlock` / `shm_cursor` / `shared_memory_broadcast` 按 segment/identifier，`multicast` / `singlecast` 的接收线程按 host:port、发送线程全组件一个）只认**第一个** locator 的绑定，后续不同值只在 stderr 警告一次。`aeron_ipc` 每个完整 locator 一个 poll 线程，不共享。
+- `aeron_ipc` 的 `driverCpu` 失败不抛异常（driver agent 由 Aeron 的 C 回调启动），打 stderr 并计入 `AeronIpcPublisherStats::driverBindFailed`，见 [aeron_ipc](03-transports/aeron_ipc.md)。
+
+> **CPU 列表不能用逗号。** ConnectionLocator 的属性块用逗号分隔属性，`cpu=2,3` 会被拆成两个属性而解析失败。多个 CPU 用区间写法：`cpu=4-5`、`cpu=cpus:2:5`（属性块里的 `:` 不影响地址解析）。不连续的 CPU 集合无法用一个属性表达。
+
+实现与测试记录见 tm_transport 仓库的 `doc/20261112-ipc-thread-affinity/README.md`。
+
 ## 最小可用示例
 
 ### 发布端：一行接入两种传输
@@ -232,7 +283,7 @@ auto heartbeatSource = transport::MultiTransportBroadcastListenerManagingUtils<R
     );
 ```
 
-第 4 个参数 `topicDescription` 是传输相关的订阅过滤表达式（RabbitMQ 用 AMQP topic 通配，Redis 用 glob）；省略则用默认 topic（RabbitMQ 为 `#`，Redis 为 `*`，见 `tm_kit/transport/MultiTransportBroadcastListener.hpp:357` 的 `multiTransportListenerDefaultTopic`）。
+第 4 个参数 `topicDescription` 是传输相关的订阅过滤表达式（RabbitMQ 用 AMQP topic 通配，Redis 用 glob）；省略则用默认 topic（RabbitMQ 为 `#`，Redis 为 `*`，见 `tm_kit/transport/MultiTransportBroadcastListener.hpp:358` 的 `multiTransportListenerDefaultTopic`）。
 
 ## 实时 / 回测行为差异
 
@@ -240,7 +291,7 @@ auto heartbeatSource = transport::MultiTransportBroadcastListenerManagingUtils<R
 
 | 维度 | 实时（`RealTimeApp`） | 回测（`SinglePassIterationApp` / `TopDown`） |
 |---|---|---|
-| 传输节点可用性 | 全部可用 | `MultiTransportBroadcastListener`、`MultiTransportRemoteFacility` 均**硬编码为 `RealTimeApp<Env>`**（见 `tm_kit/transport/MultiTransportBroadcastListener.hpp:372`、`tm_kit/transport/MultiTransportRemoteFacility.hpp:123`），不能用于单程迭代 App |
+| 传输节点可用性 | 全部可用 | `MultiTransportBroadcastListener`、`MultiTransportRemoteFacility` 均**硬编码为 `RealTimeApp<Env>`**（见 `tm_kit/transport/MultiTransportBroadcastListener.hpp:373`、`tm_kit/transport/MultiTransportRemoteFacility.hpp:123`），不能用于单程迭代 App |
 | 数据来源 | 网络推送，自带后台线程 | 改用文件/内存 importer；或把实时图录制成 chain 再回放（见 `tm_examples/simple_demo_chain_version/`） |
 | 时钟 | `real_time_clock::ClockComponent` | `single_pass_iteration_clock::ClockComponent`（数据的时间戳即"当前时间"） |
 | 替代方案 | —— | `SyntheticMultiTransportFacility`（`tm_kit/transport/SyntheticMultiTransportFacility.hpp`）在内存中合成 facility，让同一份业务代码在没有网络的情况下跑通 |
@@ -252,7 +303,7 @@ auto heartbeatSource = transport::MultiTransportBroadcastListenerManagingUtils<R
 
 **1. 传输节点硬编码 `RealTimeApp`，放进回测 App 会编译失败**
 
-`MultiTransportBroadcastListener` 的基类是 `infra::RealTimeApp<Env>::AbstractIntegratedOnOrderFacilityWithExternalEffects<...>`（`tm_kit/transport/MultiTransportBroadcastListener.hpp:372`），`MultiTransportRemoteFacility` 同样把 `M` 定为 `infra::RealTimeApp<Env>`（`tm_kit/transport/MultiTransportRemoteFacility.hpp:123`）。在 `SinglePassIterationApp` 的图里注册这些节点会得到一大堆模板实例化错误。回测请改用文件 importer 或合成设施。
+`MultiTransportBroadcastListener` 的基类是 `infra::RealTimeApp<Env>::AbstractIntegratedOnOrderFacilityWithExternalEffects<...>`（`tm_kit/transport/MultiTransportBroadcastListener.hpp:373`），`MultiTransportRemoteFacility` 同样把 `M` 定为 `infra::RealTimeApp<Env>`（`tm_kit/transport/MultiTransportRemoteFacility.hpp:123`）。在 `SinglePassIterationApp` 的图里注册这些节点会得到一大堆模板实例化错误。回测请改用文件 importer 或合成设施。
 
 **2. 信道字符串里的空段不能省**
 
@@ -277,6 +328,10 @@ auto heartbeatSource = transport::MultiTransportBroadcastListenerManagingUtils<R
 **7. 心跳与告警是所有传输的隐式前提**
 
 服务发现（`setupBroadcastListenerThroughHeartbeat`、`setupOneNonDistinguishedRemoteFacility`）依赖心跳广播来决定"远端是否存在"。忘记调用 `initializeHeartbeatAndAlertComponent` 与 `attachHeartbeatAndAlertComponent` 会导致这些 setup 函数永远等不到对端。
+
+**8. 自定义线程绑核 provider 要在图启动前设置**
+
+`xxx_setThreadCpuLease` 只能成功一次。`XxxImporterExporter::start` / `MultiTransportBroadcastListener::start` / `initializeHeartbeatAndAlertComponent` 会以“没装才装”的方式装上默认 provider；在这之后再设置自定义 provider 会抛 `std::logic_error`。另外 `cpu` 等属性值里不能写逗号，见 [transport 线程绑核](#6-transport-线程绑核)。
 
 ## 第三方依赖
 
@@ -313,3 +368,4 @@ auto heartbeatSource = transport::MultiTransportBroadcastListenerManagingUtils<R
 - [各传输的并发支持](08-concurrency.md) — 多进程读/写、进程内多线程读/写矩阵
 - [AppRunner 连接与控制](../tm_infra/05-app-runner.md) — `registerImporter`、`connect`、`controlAll`
 - [Environment 组件组合](../tm_infra/02-environments.md) — `infra::Environment` 的虚继承混合模型
+- [实时执行器与绑核](../tm_infra/10-realtime-executors.md) — `CpuBindingSpec`、`ThreadCpuLease`、`IThreadCpuAllocator`

@@ -160,7 +160,7 @@ transport::MultiTransportFacilityWrapper<R>::wrap<DHHelperCommand,DHHelperReply>
 
 **2. topic 通配符是 Redis glob，不是 AMQP 语法**
 
-Redis：`*`（任意长度）、`?`（单字符）、`[abc]`（字符集）。AMQP：`*`（一个词）、`#`（多个词）。框架在 `MultiTransportBroadcastListenerTopicHelper` 中会把 `#` 转成 `*` 以统一书写（`tm_kit/transport/MultiTransportBroadcastListener.hpp:284` 的 `redisTopicHelper`），但**其他 AMQP 特有语法不会被转换**。
+Redis：`*`（任意长度）、`?`（单字符）、`[abc]`（字符集）。AMQP：`*`（一个词）、`#`（多个词）。框架在 `MultiTransportBroadcastListenerTopicHelper` 中会把 `#` 转成 `*` 以统一书写（`tm_kit/transport/MultiTransportBroadcastListener.hpp:285` 的 `redisTopicHelper`），但**其他 AMQP 特有语法不会被转换**。
 
 **3. `port` 为 0 时静默回落到 6379**
 

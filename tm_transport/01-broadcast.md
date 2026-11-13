@@ -27,7 +27,7 @@ namespace dev::cd606::tm::transport
 
 ## 核心类型与签名
 
-### 1. 底层节点：`MultiTransportBroadcastListener`（`MultiTransportBroadcastListener.hpp:372`）
+### 1. 底层节点：`MultiTransportBroadcastListener`（`MultiTransportBroadcastListener.hpp:373`）
 
 这是真正干活的节点，继承自 `RealTimeApp<Env>::AbstractIntegratedOnOrderFacilityWithExternalEffects<MultiTransportBroadcastListenerInput, MultiTransportBroadcastListenerOutput, basic::TypedDataWithTopic<T>>` 和 `IControllableNode<Env>`。
 
@@ -52,7 +52,7 @@ using MultiTransportBroadcastListenerOutput = basic::CBOR<
 >;
 ```
 
-订阅描述结构体（`MultiTransportBroadcastListener.hpp:190`）：
+订阅描述结构体（`MultiTransportBroadcastListener.hpp:191`）：
 
 ```cpp
 struct MultiTransportBroadcastListenerAddSubscription {
@@ -67,20 +67,20 @@ struct MultiTransportBroadcastListenerRemoveSubscription {
 struct MultiTransportBroadcastListenerRemoveAllSubscriptions {};    // :205
 ```
 
-构造函数与 `IControllableNode` 接口（`MultiTransportBroadcastListener.hpp:1290`）：
+构造函数与 `IControllableNode` 接口（`MultiTransportBroadcastListener.hpp:1291`）：
 
 ```cpp
 MultiTransportBroadcastListener(std::optional<WireToUserHook> wireToUserHook = std::nullopt);
-void start(Env *env) override final;      // :1059，空实现
-void handle(InnerData<Key<MultiTransportBroadcastListenerInput>> &&input) override final;  // :1061
-void control(Env *env, std::string const &command, std::vector<std::string> const &params) override final;  // :1064
+void start(Env *env) override final;      // :1303，只做 installThreadCpuLeaseProviders<Env>(env)（没装才装），见 00-overview「transport 线程绑核」
+void handle(InnerData<Key<MultiTransportBroadcastListenerInput>> &&input) override final;  // :1309
+void control(Env *env, std::string const &command, std::vector<std::string> const &params) override final;  // :1312
 ```
 
-`control` 支持两个命令（`MultiTransportBroadcastListener.hpp:1307`）：
+`control` 支持两个命令（`MultiTransportBroadcastListener.hpp:1312`）：
 - `"stop"` —— 发一条 `RemoveAllSubscriptions`，取消全部订阅并把当前订阅记入 `restartInfo_`
 - `"restart"` —— 从 `restartInfo_` 恢复全部订阅
 
-订阅记录用 `std::map<SubscriptionRecKey, MultiTransportBroadcastListenerAddSubscription>` 保存，其中 `SubscriptionRecKey = std::tuple<ConnectionType, uint32_t>`（`MultiTransportBroadcastListener.hpp:396`）。
+订阅记录用 `std::map<SubscriptionRecKey, MultiTransportBroadcastListenerAddSubscription>` 保存，其中 `SubscriptionRecKey = std::tuple<ConnectionType, uint32_t>`（`MultiTransportBroadcastListener.hpp:397`）。
 
 **实务上你几乎不会直接实例化它**——用下面两个 `ManagingUtils` 类。
 
@@ -268,7 +268,7 @@ public:
 
 ### 5. topic 的通配符适配
 
-不同传输的通配符语法不同，框架做了自动转换（`MultiTransportBroadcastListener.hpp:281`、`:256`、`:265`）：
+不同传输的通配符语法不同，框架做了自动转换（`MultiTransportBroadcastListener.hpp:282`、`:290`、`:300`）：
 
 | 传输 | topic 为空时的默认值 | `#` 的处理 |
 |---|---|---|
@@ -398,7 +398,7 @@ auto sources = transport::MultiTransportBroadcastListenerManagingUtils<R>
 
 **4. `control("stop")` 之后的订阅需要 `control("restart")` 才能恢复**
 
-`MultiTransportBroadcastListener::control` 在收到 `"stop"` 时把当前订阅存入 `restartInfo_` 并全部取消（`MultiTransportBroadcastListener.hpp:1304`）。**若在 stop 与 restart 之间又新增了订阅，那些新订阅不会进 `restartInfo_`**——因为 `restartInfo_` 只在 stop 时填充。需要动态增删订阅请直接用 `AddSubscription`/`RemoveSubscription` 指令。
+`MultiTransportBroadcastListener::control` 在收到 `"stop"` 时把当前订阅存入 `restartInfo_` 并全部取消（`MultiTransportBroadcastListener.hpp:1312`）。**若在 stop 与 restart 之间又新增了订阅，那些新订阅不会进 `restartInfo_`**——因为 `restartInfo_` 只在 stop 时填充。需要动态增删订阅请直接用 `AddSubscription`/`RemoveSubscription` 指令。
 
 **5. `threaded=true` 会插入额外的命名节点，节点名冲突会报错**
 
@@ -418,7 +418,7 @@ auto sources = transport::MultiTransportBroadcastListenerManagingUtils<R>
 
 ## 第三方依赖
 
-广播的第三方依赖由**具体的传输实现**决定，头文件本身通过 `MultiTransportBroadcastListener.hpp:9–21` 引入全部传输组件：
+广播的第三方依赖由**具体的传输实现**决定，头文件本身通过 `MultiTransportBroadcastListener.hpp:10–30` 引入全部传输组件：
 
 | 头文件 | 第三方库 | pkg-config |
 |---|---|---|

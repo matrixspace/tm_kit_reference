@@ -204,7 +204,7 @@ transport::MultiTransportFacilityWrapper<R>::wrapWithProtocol
 
 **3. 只有 facility，没有广播**
 
-`MultiTransportBroadcastListenerConnectionType` 中没有 grpc_interop（`tm_kit/transport/MultiTransportBroadcastListener.hpp:113`）。需要服务端推送用 [websocket](websocket.md)。
+`MultiTransportBroadcastListenerConnectionType` 中没有 grpc_interop（`tm_kit/transport/MultiTransportBroadcastListener.hpp:114`）。需要服务端推送用 [websocket](websocket.md)。
 
 **4. gRPC 要求客户端和服务端的 proto 定义完全一致**
 
