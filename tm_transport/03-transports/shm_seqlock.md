@@ -199,6 +199,14 @@ topic+payload 超过 `slotSize` 时消息不会发出，计入 `ShmSeqlockPublis
 
 只能广播。请求-响应见 [socket_rpc](socket_rpc.md) 等。
 
+**8. 读者先于写者启动：布局仍由写者决定，读者轮询等段**
+
+读者先启动时段还不存在，读者每 10ms 轮询 `shm_open` 等段（`openAndJoin`，`ShmSeqlockComponent.cpp:705`）。写者启动后用自己的 locator 决定布局（`slotSize`/`slotCount`/`layout`/`stride128`）并写进段头（`:408`–`:411`），读者第一次 `tryOpen` 成功（`:671`）后从段头读布局（`setLayoutFromHeader`，`:220`）。布局永远是**第一个写者**的 locator 决定，读者先启动只是多等一会儿。
+
+**9. 启动顺序不影响正确性，但决定读者能看到哪些消息**
+
+seqlock 保证不损坏/不重复/不乱序（重启 828/1147 次仍 0 corrupt/dup/ooo，见系统测试报告）。但这是**有损广播**：任何读者都拿不到它成功 join 之前发布的消息。写者先启动 → 读者 join 前的消息看不到（`join=next` 全部跳过、`join=latest` 补发最新一条）；读者先启动 → 同样有窗口（读者第一次成功打开段时，写者可能已发了几条，那几条也算 join 前）。要零丢失需可靠投递，或在应用层做序号空洞检测与补偿。
+
 ## 第三方依赖
 
 无。直接使用 Linux 系统调用（`mmap`、`flock`、`futex`、`mlock`）。
