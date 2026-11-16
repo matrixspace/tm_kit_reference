@@ -82,7 +82,7 @@ shm_seqlock://::::<segmentName>[prop=value,...]
 | `spinCount` | futex 模式下睡眠前的轮询次数 | `20000` |
 | `futexTimeoutUs` | futex 等待超时（微秒） | `100000` |
 | `pauseAfter` | spin 模式下空轮询 n 次后开始 PAUSE | `0`（从不） |
-| `join` | `latest`：首条交付已发布的最新消息；`next`：只交付加入之后发布的 | `latest` |
+| `join` | `latest`：首条交付已发布的最新消息；`next`：只交付加入之后发布的 | `next` |
 | `mlock` | 尽力 mlock 映射 | `true` |
 | `cpu` | 读线程绑核，`CpuBindingSpec` 语法（`none`/`auto`/`numa:<n>`/`cpus:<list>`/`<list>`，不能含逗号，用区间）。需要 provider，见 [transport 线程绑核](../00-overview.md#6-transport-线程绑核) | 不绑 |
 

@@ -125,7 +125,7 @@ tm_infra  ──►  tm_basic  ──►  tm_transport
 > |---|---|---|
 > | `tm_infra` | `8295c6b` | 2026-11-12 |
 > | `tm_basic` | `7821937` | 2026-11-12 |
-> | `tm_transport` | `7b46a68` | 2026-11-16 |
+> | `tm_transport` | `4874c7a` | 2026-11-16 |
 >
 > 下游若 pin 的 tm_kit 版本与此不同，文档描述的 API 可能已经变了。
 > 核对方法：`python3 tools/stamp_versions.py --check`（需三个库在同一 workspace 下）。

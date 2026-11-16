@@ -16,7 +16,7 @@
     },
     "tm_transport": {
       "repo": "git@github.com:matrixspace/tm_transport.git",
-      "commit": "7b46a68",
+      "commit": "4874c7a",
       "commit_date": "2026-11-16",
       "headers": 100
     }
