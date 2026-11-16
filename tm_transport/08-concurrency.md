@@ -124,6 +124,7 @@ keywords: [并发, 线程安全, thread safety, 多进程, 多线程, 多写者,
 - **显式 `writerLock=false`**：`publish()` 里的 `next_`、`lastTopic_`（`std::string`）、`lastTopicHash_` 都没有同步（`ShmSeqlockComponent.cpp:452`），并发调用的后果：
   - 两个线程拿到同一个 `next_`，写同一个 slot。一个线程的偶数提交 seq 让读者认为 slot 已完成，另一个线程还在 memcpy，读者拿到**通过 seqlock 校验的撕裂数据**，无法检测。
   - `lastTopic_ = topic` 并发赋值是 `std::string` 数据竞争（UB，可能堆损坏）；`topicHash` 可能与 topic 不匹配，读端按 hash 过滤时消息被分错或丢掉。
+- **高频多 writer 的推荐做法**：`writerLock=true` 的单 cache line 自旋锁在**饱和争用时超线性退化**（实测同进程 1/2/4/8 writer 聚合吞吐约 9.95M / 2.88M / 1.10M / 0.54M 条/s，`ipc_concurrency_test --mode=pub`）。高频多生产者**不要**靠 `writerLock=true` 串行化，应**收敛成单发布线程**（单生产者队列：多个生产线程只把消息投给一个专职 publish 的线程），或显式 `writerLock=false` 后在应用层自行串行化。`writerLock=true` 只适合低频并发（数据 + 心跳）。
 - **多线程读**：每段每个组件一条读线程，回调串行。读端属性由该段第一个订阅决定。
 
 ### shm_cursor

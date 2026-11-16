@@ -177,6 +177,8 @@ comp->shm_seqlock_addSubscriptionClient(
 
 一个段只能有一个发布者线程。跨进程由 `flock` 强制；进程内默认也串行化（`writerLock=true`，`ShmSeqlockComponent.hpp:85`–`:88`）。数据和 `HeartbeatAndAlertComponent` 心跳发往同一段时，多线程并发调 publisher 默认是安全的。只有显式写 `writerLock=false` 时才要求所有 publish 都来自同一线程，否则并发未串行化调用会写坏消息。
 
+`writerLock=true` 是单 cache line 的 `atomic_flag` 自旋锁，**只适合低频并发**（数据 + 心跳这类场景）。高频多 writer 饱和争用时聚合吞吐超线性退化——实测同进程 1/2/4/8 个写线程约 9.95M / 2.88M / 1.10M / 0.54M 条/s（release、绑核、`ipc_concurrency_test --mode=pub`）。原因是 `writing_`（及紧邻的 `next_`）这条 cache line 在所有写线程核之间乒乓。**高频多 writer 的正确做法**：把多生产者收敛成一个发布线程（单生产者队列，其他线程只把消息投给该线程），或显式 `writerLock=false` 后在应用层自行串行化。
+
 **3. 第一个订阅决定读者属性**
 
 每个段在每个组件里只有一条读线程，读端属性（`read`、`wait`、`join` 等）由该段的**第一个订阅**决定，之后的订阅改属性无效。`cpu` 同理：读线程按第一个订阅的 `cpu` 绑核，之后的订阅写不同的值只在 stderr 警告一次。
