@@ -64,13 +64,13 @@ shm_seqlock://::::<segmentName>[prop=value,...]
 
 | 属性 | 含义 | 默认 |
 |---|---|---|
-| `slotSize` | 每 slot 可容纳的 topic+payload 字节数，1..2^26 | `1000` |
+| `slotSize` | 每 slot 可容纳的 topic+payload 字节数，1..2^26 | `2048` |
 | `slotCount` | slot 数，2 的幂，2..2^24 | `4096` |
 | `stride128` | slot 步长按 128 字节对齐 | 64 字节 |
-| `layout` | `inline` / `split` / `inline-premark` | `inline` |
+| `layout` | `inline` / `split` / `inline-premark` | `inline-premark` |
 | `wait` | `futex` 时发布者唤醒 futex 等待的读者 | `spin` |
 | `mlock` | 尽力 mlock 段 | `true` |
-| `writerLock` | 串行化本进程多个线程对该段的 publish（如数据 + 心跳） | `false` |
+| `writerLock` | 串行化本进程多个线程对该段的 publish（如数据 + 心跳） | `true` |
 | `testNoPremark` | **仅测试用**，关闭 pre-mark，不是合法 seqlock | —— |
 
 读端属性（布局一律从段头读取，与 locator 写的无关，`:63`–`:83`）：
@@ -90,9 +90,9 @@ shm_seqlock://::::<segmentName>[prop=value,...]
 
 | layout | seq 位置 | 特点 |
 |---|---|---|
-| `inline` | 与 slot 头、前若干数据字节同一 64B 行 | 默认 |
+| `inline` | 与 slot 头、前若干数据字节同一 64B 行 | |
 | `split` | 独占一条 64B 行 | 每次提交后预标记（pre-mark）下一 slot，被轮询的行每条消息只写一次 |
-| `inline-premark` | 同 `inline` | 也预标记下一 slot，并调整写序：先写 line 0 之外的字节，再把 line 0（长度 + topic 前缀 + 提交 seq）一次写完 |
+| `inline-premark` | 同 `inline` | 也预标记下一 slot，并调整写序：先写 line 0 之外的字节，再把 line 0（长度 + topic 前缀 + 提交 seq）一次写完；默认 |
 
 `split` / `inline-premark` 下读者最多可落后 `slotCount-1` 条而不被套圈。
 
@@ -173,9 +173,9 @@ comp->shm_seqlock_addSubscriptionClient(
 
 发布者从不等读者。落后超过 `slotCount`（`split`/`inline-premark` 下为 `slotCount-1`）的读者被重新同步，丢失计入 `ShmSeqlockReaderStats::lost`。需要可靠投递时不要用它，或者在应用层检测序号空洞。
 
-**2. 同进程多线程发布必须开 `writerLock=true`**
+**2. 同进程多线程发布默认已串行化（`writerLock=true`）**
 
-一个段只能有一个发布者线程。跨进程由 `flock` 强制，**进程内不强制**（`ShmSeqlockComponent.hpp:85`–`:88`）。典型陷阱：数据和 `HeartbeatAndAlertComponent` 心跳发往同一段，两个线程并发调 publisher 会写坏消息。此时必须在 locator 上加 `writerLock=true`。
+一个段只能有一个发布者线程。跨进程由 `flock` 强制；进程内默认也串行化（`writerLock=true`，`ShmSeqlockComponent.hpp:85`–`:88`）。数据和 `HeartbeatAndAlertComponent` 心跳发往同一段时，多线程并发调 publisher 默认是安全的。只有显式写 `writerLock=false` 时才要求所有 publish 都来自同一线程，否则并发未串行化调用会写坏消息。
 
 **3. 第一个订阅决定读者属性**
 

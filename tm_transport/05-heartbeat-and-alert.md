@@ -371,7 +371,7 @@ auto calc = transport::MultiTransportRemoteFacilityManagingUtils<R>
 
 可用于承载心跳的传输（`HeartbeatAndAlertComponentInitializer` 的特化清单，`HeartbeatAndAlertComponent.hpp:86` 起）：`multicast`、`rabbitmq`、`zeromq`、`redis`、`nats`、`nng`、`shared_memory_broadcast`、`shm_seqlock`、`shm_cursor`、`aeron_ipc`、`web_socket`、`singlecast`。
 
-> 在同一进程里既发数据又发心跳到同一个 `shm_seqlock` / `shm_cursor` 段时，发布端会被两个线程调用，必须在 locator 上加 `writerLock=true`（shm_seqlock）或 `publisherLock=true`（shm_cursor），否则消息会损坏。`aeron_ipc` 没有这个开关，心跳应走另一条 channel。
+> 在同一进程里既发数据又发心跳到同一个 `shm_seqlock` / `shm_cursor` 段时，发布端会被两个线程调用。`shm_seqlock` 默认 `writerLock=true`，无需额外配置；只有显式 `writerLock=false` 时才有并发写坏消息的风险。`shm_cursor` 默认 `publisherLock=false`，必须在 locator 上加 `publisherLock=true`，否则消息会损坏。`aeron_ipc` 没有这个开关，心跳应走另一条 channel。
 
 `HeartbeatMessage` 的序列化用 **CBOR**（`SerializeToString` / `ParseFromString`，`HeartbeatMessage.hpp:60`），由 `src/HeartbeatMessage.cpp` 实现。
 

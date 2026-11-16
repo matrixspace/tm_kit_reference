@@ -31,7 +31,7 @@ keywords: [并发, 线程安全, thread safety, 多进程, 多线程, 多写者,
 
 | 传输 | 多进程写 | 多进程读 | 进程内多线程写 | 进程内多线程读 | 数据与心跳共用 locator |
 |---|---|---|---|---|---|
-| `shm_seqlock` | ✗ `flock` 强制单发布进程 | ✓ | ✗ 默认；`writerLock=true` 后 ✓ | ✓ 每段一条读线程 | ✗ 除非**所有** locator 都带 `writerLock=true` |
+| `shm_seqlock` | ✗ `flock` 强制单发布进程 | ✓ | ✓ 默认（`writerLock=true`） | ✓ 每段一条读线程 | ✓ 默认；显式 `writerLock=false` 时同多线程写 |
 | `shm_cursor` | ✗ `flock` 强制单发布进程 | ✓ | ✗ 默认；`publisherLock=true` 后 ✓ | ✓ 每段一条读线程 | ✗ 除非**所有** locator 都带 `publisherLock=true` |
 | `aeron_ipc` | ⚠ 可以，每进程一个 session，跨发布者无序 | ✓ | ✗ 无开关 | ✓ 每 locator 一条轮询线程；回调勿长时间阻塞 | ✗ |
 | `shared_memory_broadcast` | ⚠ 段不排他，未实测出问题，不建议 | ✓ 每读者独立队列 | ✓ `publish` 持 `listMutex`；读者竞争已修复（实测） | ✓ 多读者组件已修复 | ✓ 同多线程写 |
@@ -54,7 +54,7 @@ keywords: [并发, 线程安全, thread safety, 多进程, 多线程, 多写者,
 
 | 传输 | 默认 | 需要的选项 / 做法 |
 |---|---|---|
-| `shm_seqlock` | ✗ 撕裂数据，读端无法检测（实测约 15–25% 消息损坏） | **所有**指向该段的 locator（含心跳）加 `writerLock=true`；或心跳走独立段 |
+| `shm_seqlock` | ✓ 默认 `writerLock=true` 串行化 | 不需要；只有显式 `writerLock=false` 时才回到撕裂风险（实测约 15–25% 消息损坏） |
 | `shm_cursor` | ✗ 撕裂数据（实测约 5–9%） | **所有** locator 加 `publisherLock=true`；或心跳走独立段 |
 | `aeron_ipc` | ✗ 共享 log buffer 被写坏，所有读者受影响 | 无选项。图内用 `oneBroadcastPublisher(..., threaded=true)`；心跳/告警走独立 stream，或在 `aeron_ipc_getPublisher` 返回的函数外自加 mutex |
 | `shared_memory_broadcast` | ✓ `publish` 全程持跨进程 `listMutex`，多写者被串行化。早期实测的 SIGSEGV 来自读者切换链尾的竞争，tm_transport `ccb9a8c` 已修复（修复前的版本仍按 ✗ 处理） | 不需要；多个写线程会在 `listMutex` 上互相等待 |
@@ -120,10 +120,10 @@ keywords: [并发, 线程安全, thread safety, 多进程, 多线程, 多写者,
 ### shm_seqlock
 
 - **多进程写**：发布者对 `/dev/shm/<段名>.lock` 取 `LOCK_EX|LOCK_NB`，失败即抛 "another live publisher holds ..."（`tm_transport/src/shm_seqlock/ShmSeqlockComponent.cpp:307`）。
-- **多线程写，默认 `writerLock=false`**：`publish()` 里的 `next_`、`lastTopic_`（`std::string`）、`lastTopicHash_` 都没有同步（`ShmSeqlockComponent.cpp:452`）。并发调用的后果：
+- **多线程写，默认 `writerLock=true`**：主路径由 `atomic_flag` 自旋锁串行化（`:461`、`:539`），可安全多线程写（实测 4 线程无损坏）。锁外的 futex 唤醒段计数 `emptyWakes_` / `waiterResets_` 和 `reject()` 的 `rejected_` 已改为原子 RMW（`:246`–`:252`、`:546`–`:552`），不再丢计数。持锁线程被抢占时其他发布线程空转，会拉高尾延迟。
+- **显式 `writerLock=false`**：`publish()` 里的 `next_`、`lastTopic_`（`std::string`）、`lastTopicHash_` 都没有同步（`ShmSeqlockComponent.cpp:452`），并发调用的后果：
   - 两个线程拿到同一个 `next_`，写同一个 slot。一个线程的偶数提交 seq 让读者认为 slot 已完成，另一个线程还在 memcpy，读者拿到**通过 seqlock 校验的撕裂数据**，无法检测。
   - `lastTopic_ = topic` 并发赋值是 `std::string` 数据竞争（UB，可能堆损坏）；`topicHash` 可能与 topic 不匹配，读端按 hash 过滤时消息被分错或丢掉。
-- **`writerLock=true`**：主路径由 `atomic_flag` 自旋锁保护（`:461`、`:539`），可安全多线程写（实测 4 线程无损坏）。锁外的 futex 唤醒段计数 `emptyWakes_` / `waiterResets_` 和 `reject()` 的 `rejected_` 已改为原子 RMW（`:246`–`:252`、`:546`–`:552`），不再丢计数。持锁线程被抢占时其他发布线程空转，会拉高尾延迟。
 - **多线程读**：每段每个组件一条读线程，回调串行。读端属性由该段第一个订阅决定。
 
 ### shm_cursor
@@ -137,7 +137,7 @@ keywords: [并发, 线程安全, thread safety, 多进程, 多线程, 多写者,
 
 ### seqlock / cursor 的配置陷阱：第一个 locator 决定属性
 
-两者的 sender 都**只按 identifier（段名）**复用，属性（包括 `writerLock` / `publisherLock`）由本进程里第一个用到该段的 locator 决定（seqlock `ShmSeqlockComponent.cpp:1135`，cursor `ShmCursorComponent.cpp:1044`）。心跳通常在建图之前初始化：如果只在 exporter 的 channel spec 里写了锁属性、心跳 locator 没写，实际生效的是**无锁版本**，没有任何报错。要么给所有指向该段的 locator 都加锁属性，要么让心跳走独立的段。
+两者的 sender 都**只按 identifier（段名）**复用，属性（包括 `writerLock` / `publisherLock`）由本进程里第一个用到该段的 locator 决定（seqlock `ShmSeqlockComponent.cpp:1135`，cursor `ShmCursorComponent.cpp:1044`）。心跳通常在建图之前初始化。`shm_seqlock` 默认 `writerLock=true`，只要没有 locator **显式**写 `writerLock=false`，段默认就是加锁的；`shm_cursor` 默认 `publisherLock=false`，如果只在 exporter 的 channel spec 里写了锁属性、心跳 locator 没写，实际生效的是**无锁版本**，没有任何报错。要么给所有指向该段的 locator 都加锁属性，要么让心跳走独立的段。
 
 ### aeron_ipc
 
