@@ -11,7 +11,7 @@ keywords: [ThreadedHandler, ExecHandler, HandlerPolicy, ThreadedPolicy, InlinePo
 
 `RealTimeApp` 把节点逻辑和调度方式分开：统一的 `ExecHandler` 负责数据分派、时间与版本检查，执行器（executor）决定是在调用线程同步处理、专用线程处理，还是交给共享线程池。通过 Environment 选择执行器，无需为 action、exporter、facility 各维护同步与异步两份实现。
 
-本文对应 2026-11-12 的 `develop` 源码（含逐节点 spinWait/绑核、CpuAutoBind 与字符串绑核策略）；具体 commit 见 [VERSIONS.json](../VERSIONS.json)。默认执行器是 **infra 的 mutex/list `DedicatedThreadExecutor`**。早期开发记录中的默认 MPSC、Enhanced 执行器和带 `ThreadedExecMode` 的契约均为历史方案。
+本文对应 2026-11-17 的 `develop` 源码（含逐节点 spinWait/绑核、CpuAutoBind 与字符串绑核策略，以及自带线程节点的谓词阻塞等待）；具体 commit 见 [VERSIONS.json](../VERSIONS.json)。默认执行器是 **infra 的 mutex/list `DedicatedThreadExecutor`**。早期开发记录中的默认 MPSC、Enhanced 执行器和带 `ThreadedExecMode` 的契约均为历史方案。
 
 ## 头文件与命名空间
 
@@ -91,7 +91,7 @@ SharedPool 的 strand（串行执行单元）允许节点在不同池线程之�
 
 ### 默认 Dedicated：保留 mutex/list，修复空等
 
-定义见 `tm_infra/tm_kit/infra/RealTimeThreadedExecutor.hpp:100`。生产者在 mutex 下追加 `std::list<Item>`，消费者把整批 `splice` 到本地处理列表。等待带 predicate：若处理期间又有数据入队，下一轮立即处理，不再无条件白等 1ms。这项修复针对该执行器；未覆盖自带线程的 trigger / bunched / simple importer 的其他等待路径。
+定义见 `tm_infra/tm_kit/infra/RealTimeThreadedExecutor.hpp:100`。生产者在 mutex 下追加 `std::list<Item>`，消费者把整批 `splice` 到本地处理列表。等待带 predicate：若处理期间又有数据入队，下一轮立即处理，不再无条件白等 1ms。这项修复最初针对该执行器；2026-11-17 起，自带线程节点的同类无谓词 `wait_for(lock, 1ms)` 轮询也一并改为带谓词阻塞 `wait` 并补齐停止路径的 `notify_one`：`constTriggerImporter`/`triggerImporter`/`bunchedImporter`（`RealTimeApp.hpp`）、`CommonFlowUtils` 的 `bunch`/`bunchWithProcessing`、transaction 的 `GeneralSubscriber`/`TransactionProcessor`，以及 `ChainWriter`/`GrpcClientFacility` 的启动等待。注意 `ChainWriter` 普通模式的 1ms 空闲轮询（驱动 `idleWork` 回调）与 `DedicatedThreadExecutorConfig::idlePeriod` 的周期 idle 语义保持不变。
 
 `DedicatedThreadExecutorConfig::idlePeriod` 默认 1ms；保持历史周期 idle 行为，即使 `executorHasIdleWork()` 为 false 仍周期回调。默认实现忽略 `ThreadedExecOptions::spinWait`、逐节点 `ThreadedNodeOptions::spinWait` 和 `Config::spinBeforeSleep`，不能用这些字段让默认执行器忙等；逐节点绑核则生效（见下节「逐节点 spinWait 与绑核」）。
 
