@@ -2,7 +2,7 @@
 title: CommonFlowUtils 节点组合工具
 library: tm_basic
 headers: [tm_kit/basic/CommonFlowUtils.hpp]
-keywords: [CommonFlowUtilComponents, idFunc, bufferingNode, filterOnOptional, dispatchOneByOne, bunchWith, bunchWithProcessing, keyify, keyifyThroughCounter, shareBetweenDownstream, duplicateInput, preserveLeft, preserveRight, parallelArrow, fanOut, pureFilter, simpleFinalizer, simpleMovingTimeWindowKleisli, complexMovingTimeWindowActionKleisli, wholeHistoryFold, synchronizer2, keyedSynchronizer2, delayer, expediter, rightShift, leftShift, snapshotOnRight, collectAndPassDownOnRight, foldAndPassDownOnRight, groupByLookAhead, mergedImporter, shiftedImporter, pickOne, pickOneFromWrappedValue, wrapTuple2OnOrderFacilityBySupplyingDefaultValue, 通用流工具, 批处理, 时间窗口, 滑动窗口, 滑窗, 均值, 时序合并, 批聚合]
+keywords: [CommonFlowUtilComponents, idFunc, bufferingNode, filterOnOptional, dispatchOneByOne, bunch, bunchWithProcessing, actionWithBufferedState, keyify, keyifyThroughCounter, shareBetweenDownstream, duplicateInput, preserveLeft, preserveRight, parallelArrow, fanOut, pureFilter, simpleFinalizer, simpleMovingTimeWindowKleisli, complexMovingTimeWindowActionKleisli, wholeHistoryFold, synchronizer2, keyedSynchronizer2, delayer, expediter, rightShift, leftShift, snapshotOnRight, collectAndPassDownOnRight, foldAndPassDownOnRight, groupByLookAhead, mergedImporter, shiftedImporter, pickOne, pickOneFromWrappedValue, wrapTuple2OnOrderFacilityBySupplyingDefaultValue, ThreadCpuBinding, configureThreadedNode, 绑核, 通用流工具, 批处理, 时间窗口, 滑动窗口, 滑窗, 均值, 时序合并, 批聚合]
 ---
 
 # CommonFlowUtils 节点组合工具
@@ -66,22 +66,21 @@ template <int N, int M2, class T>
 static std::shared_ptr<typename M::template Action<basic::SingleLayerWrapper<N,T>, basic::SingleLayerWrapper<M2,T>>> changeWrap();
 ```
 
-### 3. 批处理（`:561–667`）
+### 3. 批处理
 
 ```cpp
-// :561 — 将 T 不断积累，直到 T::isFinal() 返回 true，输出 vector<T>
+// 将 T 不断积累，输出 vector<T>
 template <class T>
-static std::shared_ptr<typename M::template Action<T, std::vector<T>>> bunchWith();
+static std::shared_ptr<typename M::template Action<T, std::vector<T>>> bunch();
 
-// :564 — 同上，但通过自定义 Buncher 决定何时输出，以及如何聚合
-// Buncher 需满足：
-//   using OutputType = ...;
-//   std::optional<OutputType> addOneItemAndCheckWhetherToOutput(T &&item);
+// 同上，但通过自定义 Buncher 把 vector<T> 聚合成输出类型
+// Buncher 需可调用为 OutputType operator()(std::vector<T>&&)，
+// 输出类型为 std::decay_t<decltype(buncher(std::move(vector<T>())))>
 template <class T, class Buncher>
-static std::shared_ptr<typename M::template Action<T, typename Buncher::OutputType>> bunchWithProcessing();
+static std::shared_ptr<typename M::template Action<T, std::decay_t<decltype(std::declval<Buncher &>()(std::move(std::declval<std::vector<T>>())))>>> bunchWithProcessing();
 ```
 
-**实现差异**：RealTimeApp 使用带 mutex 的后台线程类；SinglePassIterationApp 用 `continuationAction` + `State` 结构；TopDownSinglePassIterationApp 用独立 AbstractAction 子类（`:561`注释）。
+**实现差异**：RealTimeApp 使用带 mutex 的后台线程类；SinglePassIterationApp 用 `continuationAction` + `State` 结构；TopDownSinglePassIterationApp 用独立 AbstractAction 子类。
 
 ### 4. Key 化族（`:567–700`）
 
@@ -406,26 +405,16 @@ auto combineAction = CFU::template snapshotOnRight<MarketData, Signal>(
 r.execute2(combineAction, marketImporter, signalImporter);
 ```
 
-### 批量收集后处理（bunchWith）
+### 批量收集（bunch）
 
 ```cpp
-// 来源：tm_examples/transaction_redundancy_test（已简化）
-// 积累 5 条记录后批量处理
-struct MyBuncher {
-    using OutputType = std::vector<MyRecord>;
-    std::vector<MyRecord> buf;
-    std::optional<OutputType> addOneItemAndCheckWhetherToOutput(MyRecord &&item) {
-        buf.push_back(std::move(item));
-        if (buf.size() >= 5) {
-            auto ret = std::move(buf);
-            buf.clear();
-            return ret;
-        }
-        return std::nullopt;
-    }
-};
-auto bunchAction = CFU::template bunchWithProcessing<MyRecord, MyBuncher>();
+// 来源：tm_examples/common_flow_util_tests/ShiftTest.cpp:61（已简化）
+using CFU = dev::cd606::tm::basic::CommonFlowUtilComponents<M>;
+// 把上游 int 流收集成 vector<int> 批次（不要求 T 提供 isFinal()）
+auto bunchAction = CFU::bunch<int>();
 ```
+
+`bunchWithProcessing` 在示例代码库中暂无用例；其 Buncher 协议见上文（可调用为 `OutputType operator()(std::vector<T>&&)`）。
 
 ### Importer 合并（回测多来源数据）
 
@@ -440,13 +429,15 @@ auto merged = CFU::template mergedImporter<MarketTick>({tickImporter, orderImpor
 
 | 功能 | 实时 (`RealTimeApp`) | 回测 (`SinglePass`/`TopDown`) |
 |---|---|---|
-| `bunchWith` | 带 mutex 的后台线程类 | `continuationAction` + State / AbstractAction |
+| `bunch` | 带 mutex 的后台线程类 | `continuationAction` + State / AbstractAction |
 | `delayer(d)` | 后台线程轮询 `env->now()` | `DelaySimulator` 在事件队列中虚拟延迟 |
 | `expediter(d)` | 透传（不支持提前） | `delayer(-d)`，时间戳前移 |
 | `leftShift(n)` | 透传（无意义） | `continuationAction`（SinglePass）/ `AbstractAction`（TopDown） |
 | `shiftedImporter` | 抛出 `std::runtime_error` | 时间戳偏移后输出 |
 | `mergedImporter` | `IHandler`-based 扇入 | 优先队列按时间戳顺序合并 |
 | `synchronizer2` | 可选 `useMutex=true` 加锁 | 单线程无竞争，`useMutex` 可为 `false` |
+
+实时模式下，`bunch`/`bunchWithProcessing`、`delayer`、`actionWithBufferedState` 各自有专用线程（不走 executor），可用 `M::configureThreadedNode(node, ThreadedNodeOptions().Cpus(...) / .CpuAutoBind())` 绑核，见 [实时执行器 · 自建线程节点的绑核](../tm_infra/10-realtime-executors.md#自建线程节点的绑核threadcpubinding)。
 
 ## 易错点
 
@@ -459,8 +450,8 @@ auto merged = CFU::template mergedImporter<MarketTick>({tickImporter, orderImpor
 **3. `snapshotOnRight` 如果 B 比 A 先到则静默丢弃**  
 若信号流（B）在行情流（A）首次到达之前就发来信号，`snapshotOnRight` 不会缓存该信号——快照为空直接返回 `nullopt`。回测回放时需保证 A 流时间戳早于 B 流，或改用 `synchronizer2`/`collectAndPassDownOnRight`。
 
-**4. `bunchWith` 依赖 `T::isFinal()` 而 `bunchWithProcessing` 不依赖**  
-`bunchWith<T>()` 通过调用 `item.isFinal()` 判断是否输出当前批次，因此 `T` 必须提供该方法。`bunchWithProcessing` 的触发条件完全由 `Buncher::addOneItemAndCheckWhetherToOutput` 决定，适合任意 `T`。
+**4. `bunch` 的批是"每个处理周期累积"而不是按 `isFinal()` 切分**  
+`bunch<T>()` 把每个处理周期内累积到的输入合并为一个 `vector<T>` 输出，不调用 `T::isFinal()`（`T` 无此要求）。`bunchWithProcessing` 则把该 `vector<T>` 交给自定义 Buncher（`operator()(std::vector<T>&&)`）聚合。
 
 **5. `groupByLookAhead` 的输入类型含前瞻**  
 该节点输入类型不是 `T` 而是 `tuple<T, optional<tuple<TimePoint,T>>>`（当前项 + 下一项预览）。需要在上游先用框架的预瞻机制（`LiftParameters::LookAheadProvider`）包装原始数据流，不能直接把普通 `T` 流接入。
@@ -481,4 +472,5 @@ auto merged = CFU::template mergedImporter<MarketTick>({tickImporter, orderImpor
 - [序列化格式](03-serialization.md) — 时间窗口内的数据通常配合 `KeyedData<K,A>` 传输，序列化格式在传输层决定
 - [AppRunnerUtils](10-app-runner-utils.md) — 与 `CommonFlowUtils` 互补，偏向于 `AppRunner` 级的图构建工具
 - [共享链](08-shared-chain.md) — 事件溯源场景中 `wholeHistoryFold` 常配合链读取使用
+- [实时执行器 · 自建线程节点的绑核](../tm_infra/10-realtime-executors.md#自建线程节点的绑核threadcpubinding) — `bunch`/`delayer`/`actionWithBufferedState` 等自建线程节点复用框架绑核
 - [tm_basic 概览](00-overview.md)

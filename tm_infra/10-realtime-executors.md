@@ -2,7 +2,7 @@
 title: 实时 handler 与可替换执行器
 library: tm_infra
 headers: [tm_kit/infra/RealTimeThreadedExecutor.hpp, tm_kit/infra/RealTimeApp.hpp, tm_kit/basic/RealTimeSharedPoolExecutor.hpp, tm_kit/basic/MoodycamelThreadedExecutor.hpp, tm_kit/basic/RealTimeMPSCQueue.hpp]
-keywords: [ThreadedHandler, ExecHandler, HandlerPolicy, ThreadedPolicy, InlinePolicy, InlineExecutor, DedicatedThreadExecutor, RealTimeThreadedExecutorComponent, RealTimeThreadedExecutorFor, RealTimeSharedPoolExecutor, RealTimeSharedPoolExecutorComponent, SharedThreadPool, SharedThreadPoolConfig, MoodycamelThreadedExecutor, MoodycamelThreadedExecutorComponent, ThreadedExecOptions, ThreadedNodeOptions, configureThreadedNode, configureThread, spinWait, 绑核, Cpus, CpuAutoBind, CpuAutoBindOnNuma, reserveReplacing, IThreadCpuAllocator, ThreadCpuAllocatorComponent, ThreadCpuLease, CpuBind, fromCpuBindString, bindCurrentThreadBy, CpuBindingSpec, CpuBindKind, parseCpuList, cpusFromString, 绑核字符串, NUMA, kOwnContext, kSerialCallbacks, wakeIdle, threadHandle, 执行器, 线程池, 共享线程池, 同步执行, FIFO顺序, strand, FIFO, concurrentqueue, moodycamel_executor]
+keywords: [ThreadedHandler, ExecHandler, HandlerPolicy, ThreadedPolicy, InlinePolicy, InlineExecutor, DedicatedThreadExecutor, RealTimeThreadedExecutorComponent, RealTimeThreadedExecutorFor, RealTimeSharedPoolExecutor, RealTimeSharedPoolExecutorComponent, SharedThreadPool, SharedThreadPoolConfig, MoodycamelThreadedExecutor, MoodycamelThreadedExecutorComponent, ThreadedExecOptions, ThreadedNodeOptions, configureThreadedNode, configureThread, spinWait, 绑核, Cpus, CpuAutoBind, CpuAutoBindOnNuma, reserveReplacing, IThreadCpuAllocator, ThreadCpuAllocatorComponent, ThreadCpuLease, ThreadCpuBinding, CpuBind, fromCpuBindString, bindCurrentThreadBy, CpuBindingSpec, CpuBindKind, parseCpuList, cpusFromString, 绑核字符串, NUMA, kOwnContext, kSerialCallbacks, wakeIdle, threadHandle, 执行器, 线程池, 共享线程池, 同步执行, FIFO顺序, strand, FIFO, concurrentqueue, moodycamel_executor]
 ---
 
 # 实时 handler 与可替换执行器
@@ -184,6 +184,32 @@ void run() {   // 自己线程函数的第一行
 - **多线程安全**：选核在分配器内部加锁，每个线程只改自己的亲和性，任意多个线程可同时调用。同一线程同时只能持有一个 `bindCurrentThread*` 租约，再次绑定会抛异常，避免一个线程悄悄占两个核。单个租约对象本身不应被两个线程同时操作（与标准库对象一致）。
 
 图节点内部的租约（`ThreadCpuLease::adopt`）与用户线程共用同一套归还逻辑；节点析构时先 join 线程再归还 CPU。
+
+### 自建线程节点的绑核（ThreadCpuBinding）
+
+自己 `std::thread` 起线程、**不走 executor** 的节点（如 CommonFlowUtils 的 `bunch`/`delayer`/`actionWithBufferedState`）也能通过 `RealTimeApp::configureThreadedNode` 绑核。infra 把 `ExecHandlerCore::configureThread` 的 allocator 解析 + 租约逻辑抽成 `ThreadCpuBinding<StateT>`（`tm_infra/tm_kit/infra/RealTimeThreadedExecutor.hpp:923`），唯一差异是“应用亲和性”直接对 native handle 调 `setThreadAffinity`，而不是经过 executor 的 `configure()`：
+
+```cpp
+template <class StateT>
+class ThreadCpuBinding {
+    // bool configure(ThreadedNodeOptions const &o,
+    //                std::optional<std::thread::native_handle_type> const &handle,
+    //                std::string const &who);
+};
+```
+
+节点要做的：在 `detach()` **之前**缓存 `std::thread::native_handle_type`（libstdc++ 的 `detach()` 会清空句柄，之后 `native_handle()` 返回 0），并在 `configureThread` 覆盖里转调：
+
+```cpp
+virtual bool configureThread(ThreadedNodeOptions const &o) override final {
+    return cpuBinding_.configure(o, handle_, typeid(*this).name());
+}
+```
+
+- `configure` 语义与 `ExecHandlerCore::configureThread` 一致：`Cpus()` 走 `reserveReplacing`，`CpuAutoBind()` 走 `acquire`，二者互斥抛 `std::invalid_argument`，失败抛 `ThreadCpuBindError`（注意：executor 路径抛 `RealTimeAppException`，裸线程路径抛 `ThreadCpuBindError`，因为 `RealTimeThreadedExecutor.hpp` 不能引用 `RealTimeApp.hpp` 的异常类型）。
+- `spinWait` 被忽略（与 `DedicatedThreadExecutor` “忽略 spinWait 但返回 true”一致）。
+- `CpuAutoBind()` 需要 Environment 挂 `ThreadCpuAllocatorComponent`；显式 `Cpus()` 无分配器组件时直接 `setThreadAffinity`。
+- 使用示例见 [CommonFlowUtils](../tm_basic/05-common-flow-util.md)：`bunch`/`bunchWithProcessing`、`delayer`、`actionWithBufferedState` 三个内部线程类都已接入。
 
 ### 字符串绑核策略（CpuBind）
 
