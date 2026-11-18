@@ -198,7 +198,7 @@ class ThreadCpuBinding {
 };
 ```
 
-节点要做的：在 `detach()` **之前**缓存 `std::thread::native_handle_type`（libstdc++ 的 `detach()` 会清空句柄，之后 `native_handle()` 返回 0），并在 `configureThread` 覆盖里转调：
+节点要做的：在创建线程后、析构 `join()` 之前缓存 `std::thread::native_handle_type`（线程保持 joinable 直到析构，`join()` 之后句柄失效），并在 `configureThread` 覆盖里转调：
 
 ```cpp
 virtual bool configureThread(ThreadedNodeOptions const &o) override final {
@@ -332,7 +332,7 @@ class ThreadedHandler : public ExecHandler<T, W, ThreadedPolicy> {};
 ## 易错点
 
 - `kOwnContext` 表示“不同执行上下文”，不等于“节点独占固定 OS 线程”；共享池也返回 true。
-- `stop()` 不是 join 或 drain：它是非阻塞的，也不排空待处理数据。**join 发生在执行器析构**：`DedicatedThreadExecutor` 与 `MoodycamelThreadedExecutor` 在析构中先 `stop()` 再 `join()`，所以显式 `delete` 一个执行器/节点后会等到其线程退出；执行器从自己的回调内被析构时无法自 join，退化为 detach，线程在回调返回后自行退出。其他自带线程的节点（`SimpleImporter`、`BunchedImporter`、`ChainReader`/`ChainWriter`、`CommonFlowUtils` 中的节点、`SharedThreadPool`）仍是 detached。host / Environment / 回调访问的资源必须覆盖回调期。SharedPool 的 executor 析构会同步正在运行的 slice（自身回调内析构有专门处理），也不能据此声称整个图可任意安全析构。
+- `stop()` 不是 join 或 drain：它是非阻塞的，也不排空待处理数据。**join 发生在执行器析构**：`DedicatedThreadExecutor` 与 `MoodycamelThreadedExecutor` 在析构中先 `stop()` 再 `join()`，所以显式 `delete` 一个执行器/节点后会等到其线程退出；执行器从自己的回调内被析构时无法自 join，退化为 detach，线程在回调返回后自行退出。自 2026-11-18 起，自带线程节点也普遍改为"析构先置 `running_`、再 join（自身回调内析构退化为 detach）"，覆盖 `BunchedImporter`、`triggerImporter`/`constTriggerImporter`（`RealTimeApp.hpp`）、`CommonFlowUtils` 的 `bunch`/`bunchWithProcessing`/`delayer`/`actionWithBufferedState`、`ChainReader`/`ChainWriter`、transaction 的 `GeneralSubscriber`/`TransactionProcessor`，以及 `ByteData…`/`GenericIOStream…` 文件回放 importer（后者把 `sleepFor` 换成可中断 `wait_for`，stop/析构能立即唤醒睡眠线程）。仍保持 detached 的只有：`SimpleImporter`（一次性调用用户函数 `f_`，可能长期阻塞，无 `running_` 循环可停止）、`SharedThreadPool`（共享池线程服务多个节点，不能随单节点析构 join），以及各传输 `ImporterExporter::control()` 里的一次性 fire-and-forget 控制线程（其真正工作线程在底层 `*Component` 中，已正确 join）。host / Environment / 回调访问的资源必须覆盖回调期。SharedPool 的 executor 析构会同步正在运行的 slice（自身回调内析构有专门处理），也不能据此声称整个图可任意安全析构。
 - 切换 SharedPool 或 Inline 前核对回调里的阻塞、重入与共享状态；原生线程句柄可能不存在。
 - 多个 tm_kit 进程同机运行时，只挂 `HwlocThreadCpuAllocatorComponent` 不会跨进程协商，忙线程可能落在同一核；需要换成 `HwlocCrossProcessCpuAllocatorComponent`（见 [tm_basic/11](../tm_basic/11-hwloc-cpu-allocator.md)）。
 - 性能数据依赖负载、CPU 绑定、SMT 与自旋预算，不把历史 benchmark 的单次结果作为 API 保证。
