@@ -123,8 +123,8 @@ tm_infra  ──►  tm_basic  ──►  tm_transport
 >
 > | 库 | commit | 日期 |
 > |---|---|---|
-> | `tm_infra` | `3471476` | 2026-11-18 |
-> | `tm_basic` | `0dbd16c` | 2026-11-18 |
+> | `tm_infra` | `f87007b` | 2026-11-18 |
+> | `tm_basic` | `6e50c34` | 2026-11-18 |
 > | `tm_transport` | `5bfd007` | 2026-11-17 |
 >
 > 下游若 pin 的 tm_kit 版本与此不同，文档描述的 API 可能已经变了。
