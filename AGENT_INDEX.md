@@ -119,12 +119,12 @@ tm_infra  ──►  tm_basic  ──►  tm_transport
 | `DelaySimulator` | 忽略 | 生效（模拟逻辑耗时） |
 | 结束方式 | `terminationController` 阻塞 main | `finalize()` 返回即结束 |
 
-> **文档校验版本**：2026-11-17 — 57 篇 / 18378 行
+> **文档校验版本**：2026-11-18 — 57 篇 / 18378 行
 >
 > | 库 | commit | 日期 |
 > |---|---|---|
 > | `tm_infra` | `5262805` | 2026-11-17 |
-> | `tm_basic` | `cf4c647` | 2026-11-17 |
+> | `tm_basic` | `3811a06` | 2026-11-18 |
 > | `tm_transport` | `5bfd007` | 2026-11-17 |
 >
 > 下游若 pin 的 tm_kit 版本与此不同，文档描述的 API 可能已经变了。
