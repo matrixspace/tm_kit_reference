@@ -123,7 +123,7 @@ tm_infra  ──►  tm_basic  ──►  tm_transport
 >
 > | 库 | commit | 日期 |
 > |---|---|---|
-> | `tm_infra` | `5262805` | 2026-11-17 |
+> | `tm_infra` | `6e28883` | 2026-11-18 |
 > | `tm_basic` | `3811a06` | 2026-11-18 |
 > | `tm_transport` | `5bfd007` | 2026-11-17 |
 >

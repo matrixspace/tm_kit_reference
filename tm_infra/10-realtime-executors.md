@@ -11,7 +11,7 @@ keywords: [ThreadedHandler, ExecHandler, HandlerPolicy, ThreadedPolicy, InlinePo
 
 `RealTimeApp` 把节点逻辑和调度方式分开：统一的 `ExecHandler` 负责数据分派、时间与版本检查，执行器（executor）决定是在调用线程同步处理、专用线程处理，还是交给共享线程池。通过 Environment 选择执行器，无需为 action、exporter、facility 各维护同步与异步两份实现。
 
-本文对应 2026-11-17 的 `develop` 源码（含逐节点 spinWait/绑核、CpuAutoBind 与字符串绑核策略，以及自带线程节点的谓词阻塞等待）；具体 commit 见 [VERSIONS.json](../VERSIONS.json)。默认执行器是 **infra 的 mutex/list `DedicatedThreadExecutor`**。早期开发记录中的默认 MPSC、Enhanced 执行器和带 `ThreadedExecMode` 的契约均为历史方案。
+本文对应 2026-11-18 的 `develop` 源码（含逐节点 spinWait/绑核、CpuAutoBind 与字符串绑核策略，以及自带线程节点的谓词阻塞等待）；具体 commit 见 [VERSIONS.json](../VERSIONS.json)。默认执行器是 **infra 的 mutex 保护 `std::deque` 队列 `DedicatedThreadExecutor`**。早期开发记录中的默认 MPSC、Enhanced 执行器和带 `ThreadedExecMode` 的契约均为历史方案。
 
 ## 头文件与命名空间
 
@@ -89,9 +89,9 @@ host 适配器提供 `executorWaitForStart()`、`executorHandle(...)`、`executo
 
 SharedPool 的 strand（串行执行单元）允许节点在不同池线程之间迁移，不能依赖 per-node `thread_local`、固定线程 ID 或逐节点绑核。不同节点仍可并发；两个节点共享业务状态时仍需同步。阻塞 IO、长时间重试或等待启动屏障会占住池线程，应保留专用线程。
 
-### 默认 Dedicated：保留 mutex/list，修复空等
+### 默认 Dedicated：mutex + deque 队列，条件 notify
 
-定义见 `tm_infra/tm_kit/infra/RealTimeThreadedExecutor.hpp:100`。生产者在 mutex 下追加 `std::list<Item>`，消费者把整批 `splice` 到本地处理列表。等待带 predicate：若处理期间又有数据入队，下一轮立即处理，不再无条件白等 1ms。这项修复最初针对该执行器；2026-11-17 起，自带线程节点的同类无谓词 `wait_for(lock, 1ms)` 轮询也一并改为带谓词阻塞 `wait` 并补齐停止路径的 `notify_one`：`constTriggerImporter`/`triggerImporter`/`bunchedImporter`（`RealTimeApp.hpp`）、`CommonFlowUtils` 的 `bunch`/`bunchWithProcessing`、transaction 的 `GeneralSubscriber`/`TransactionProcessor`，以及 `ChainWriter`/`GrpcClientFacility` 的启动等待。注意 `ChainWriter` 普通模式的 1ms 空闲轮询（驱动 `idleWork` 回调）与 `DedicatedThreadExecutorConfig::idlePeriod` 的周期 idle 语义保持不变。
+定义见 `tm_infra/tm_kit/infra/RealTimeThreadedExecutor.hpp:429`。生产者在 mutex 下追加 `std::deque<Item>`，消费者把整批 `swap` 到本地处理 deque，drain 用 range-for + `clear()`，`push` 仅在队列由空变非空时 `notify_one`（2026-11-18 起，采用 bunch-throughput 的优化手法：list→deque 省逐项 malloc/free，swap 不分配，`clear()` 代替逐项 `pop_front()`，条件 notify 省忙时逐项 futex）。等待带 predicate：若处理期间又有数据入队，下一轮立即处理，不再无条件白等 1ms。这项修复最初针对该执行器；2026-11-17 起，自带线程节点的同类无谓词 `wait_for(lock, 1ms)` 轮询也一并改为带谓词阻塞 `wait` 并补齐停止路径的 `notify_one`：`constTriggerImporter`/`triggerImporter`/`bunchedImporter`（`RealTimeApp.hpp`）、`CommonFlowUtils` 的 `bunch`/`bunchWithProcessing`、transaction 的 `GeneralSubscriber`/`TransactionProcessor`，以及 `ChainWriter`/`GrpcClientFacility` 的启动等待。2026-11-18 起，`triggerImporter`/`bunchedImporter`/`constTriggerImporter`（`RealTimeApp.hpp`）的入队容器同样由 `std::list` 改为 `std::deque`、drain 改 range-for+`clear()`，并采用相同的空→非空条件 notify。注意 `ChainWriter` 普通模式的 1ms 空闲轮询（驱动 `idleWork` 回调）与 `DedicatedThreadExecutorConfig::idlePeriod` 的周期 idle 语义保持不变。
 
 `DedicatedThreadExecutorConfig::idlePeriod` 默认 1ms；保持历史周期 idle 行为，即使 `executorHasIdleWork()` 为 false 仍周期回调。默认实现忽略 `ThreadedExecOptions::spinWait`、逐节点 `ThreadedNodeOptions::spinWait` 和 `Config::spinBeforeSleep`，不能用这些字段让默认执行器忙等；逐节点绑核则生效（见下节「逐节点 spinWait 与绑核」）。
 
@@ -298,7 +298,7 @@ Meson 的 feature 选项 `moodycamel_executor`（`tm_basic/meson_options.txt:1`�
 
 ### 缓冲诊断与 idle 唤醒
 
-`OutputRealTimeThreadBufferSizeComponent` 让 handler 设置 `trackPendingCount=true`，按批次记录缓冲计数。默认 Dedicated 报告 splice 批次大小；Moodycamel 使用发布前维护的 pending 计数，不能把不同执行器的诊断值解释为完全相同的队列快照。
+`OutputRealTimeThreadBufferSizeComponent` 让 handler 设置 `trackPendingCount=true`，按批次记录缓冲计数。默认 Dedicated 报告 swap 批次大小；Moodycamel 使用发布前维护的 pending 计数，不能把不同执行器的诊断值解释为完全相同的队列快照。
 
 `setIdleWorkerForAction` 可以在 action 构造启动后调用；setter 先在锁内更新 worker 与原子 `hasIdleWorker_`，再调用 `wakeIdle()`，以唤醒可能无限期睡眠的执行器（`tm_infra/tm_kit/infra/RealTimeApp.hpp:1111`）。Inline 不运行 idle worker，不能靠为 threaded handler 选 Inline 来保留异步 idle 语义。
 

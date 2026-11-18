@@ -163,7 +163,7 @@ using M = infra::BasicWithTimeApp<TheEnvironment>;
 
 ### RealTimeApp
 
-多线程。基于 handler 的节点由 `LiftParameters::suggestThreaded` 选择 `InlinePolicy` 或 `ThreadedPolicy`，后者按 Environment 选择执行器，默认是 mutex/list 的 `DedicatedThreadExecutor`；可选 basic SharedPool / Moodycamel，也可显式选择 Inline。并非所有 importer / exporter 都独占线程：普通 exporter 默认同步，`simpleImporter` 等自带线程的实现也不经过该执行器扩展点。详见 [实时 handler 与可替换执行器](10-realtime-executors.md)。
+多线程。基于 handler 的节点由 `LiftParameters::suggestThreaded` 选择 `InlinePolicy` 或 `ThreadedPolicy`，后者按 Environment 选择执行器，默认是 mutex 保护 deque 队列的 `DedicatedThreadExecutor`；可选 basic SharedPool / Moodycamel，也可显式选择 Inline。并非所有 importer / exporter 都独占线程：普通 exporter 默认同步，`simpleImporter` 等自带线程的实现也不经过该执行器扩展点。详见 [实时 handler 与可替换执行器](10-realtime-executors.md)。
 
 `finalize()` 只做一件事：遍历三组 `IExternalComponent` 调它们的 `start(env)`，然后返回（`tm_infra/tm_kit/infra/RealTimeApp.hpp:3373`）。图从此在后台自行运转，所以 main 函数必须用 `infra::terminationController(...)` 阻塞住，否则进程立刻退出。
 

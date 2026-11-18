@@ -4,8 +4,8 @@
   "libraries": {
     "tm_infra": {
       "repo": "git@github.com:matrixspace/tm_infra.git",
-      "commit": "5262805",
-      "commit_date": "2026-11-17",
+      "commit": "6e28883",
+      "commit_date": "2026-11-18",
       "headers": 79
     },
     "tm_basic": {
